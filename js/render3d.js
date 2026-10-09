@@ -63,6 +63,9 @@ function getSmokeTex() {
 }
 const isShared = (t) => t === glowTex || t === smokeTex || [...texCache.values()].includes(t);
 const fpv = { yaw: 0, pitch: 0, lookYaw: 0, lookPitch: 0, dragging: false, releasedAt: 0, bob: 0, last: null, lastT: 0, fov: 72, shake: 0, init: false };
+// 3인칭(도망자 뒤에서 따라가기) 상태: 이동 방향을 부드럽게 따라 돌고, 뒤에 벽이 있으면 카메라를 당김
+const tps = { yaw: 0, init: false, dist: 3, pos: null, look: null, lastT: 0 };
+const TPS = { DIST: 3.5, MIN: 1.4, HEIGHT: 2.6, LOOK_AHEAD: 1.8, LOOK_UP: 0.4, FOV: 62 };
 const FPV = { EYE: 0.6, WALL_SCALE: 3.7, GIANT_SCALE: 1.5, FOV: 72, FOV_SPRINT: 88, FOG_NEAR: 1.2, FOG_FAR: 9, BG: 0x04050b };
 let glowTex = null;
 function getGlowTex() {
@@ -535,7 +538,7 @@ function applyModeVisuals() {
   // 1인칭에서는 벽 너머로 비치는 번호표를 숨김 (문 위치는 빛기둥으로 표시)
   giantObjs.forEach((o) => { if (o.userData.label) o.userData.label.visible = !f; });
   doorObjs.forEach((d) => { d.userData.label.visible = !f; });
-  controls.enabled = !f;
+  controls.enabled = !f && R3.camMode !== 'tps';
   camera.near = f ? 0.05 : 0.1;
   if (!f) { camera.fov = 48; camera.rotation.order = 'XYZ'; camera.up.set(0, 1, 0); }
   camera.updateProjectionMatrix();
@@ -555,6 +558,12 @@ R3.setCamMode = function (mode) {
   const was = R3.camMode;
   R3.camMode = mode;
   if (mode === 'fpv' || was === 'fpv') { fpv.init = false; fpv.lookYaw = fpv.lookPitch = 0; applyModeVisuals(); }
+  if (mode === 'tps' || was === 'tps') {
+    tps.init = false;
+    if (controls) { controls.autoRotate = false; controls.enabled = mode !== 'tps' && mode !== 'fpv'; }
+    if (mode === 'tps') { camera.fov = TPS.FOV; camera.rotation.order = 'XYZ'; camera.up.set(0, 1, 0); camera.updateProjectionMatrix(); return; }
+    if (mode !== 'fpv') { camera.fov = 48; camera.updateProjectionMatrix(); }
+  }
   if (mode === 'fpv') return;
   if (mode === 'orbit') R3.resetCamera();
   else if (runnerObj) { const p = runnerObj.position; controls.target.copy(p); camera.position.set(p.x, p.y + 11, p.z + 5.5); controls.update(); }
@@ -748,13 +757,18 @@ R3.render = function (s) {
   // 카메라
   if (muzzle && R3.camMode !== 'fpv') muzzle.visible = false;
   // 1인칭: 도망자가 밟고 선 칸의 머리 위 표시(⏳·⬆ 등)가 화면을 가리지 않게 숨김
-  { const fp = R3.camMode === 'fpv'; for (const o of [...stairObjs, ...leverObjs.values(), ...plateObjs, ...pedObjs, ...chestObjs.values()]) { const L = o && o.userData && o.userData.label; if (!L) continue; L.visible = !fp || Math.hypot(o.position.x - camera.position.x, o.position.z - camera.position.z) > 0.75; } }
+  { const fp = R3.camMode === 'fpv', tp = R3.camMode === 'tps', lim = tp ? 1.6 : 0.75; for (const o of [...stairObjs, ...leverObjs.values(), ...plateObjs, ...pedObjs, ...chestObjs.values()]) { const L = o && o.userData && o.userData.label; if (!L) continue; L.visible = !(fp || tp) || Math.hypot(o.position.x - camera.position.x, o.position.z - camera.position.z) > lim; } }
   if (R3.camMode === 'fpv' && runnerObj) {
     updateFpv(s, now);
     if (muzzle) {
       const mt = now - (R3.muzzleT || -9); muzzle.visible = mt < 0.16;
       if (muzzle.visible) { camera.getWorldDirection(tmpV); muzzle.position.copy(camera.position).addScaledVector(tmpV, 0.6); muzzle.position.y -= 0.12; const k = 0.5 + mt * 3; muzzle.scale.set(k, k, 1); muzzle.material.opacity = 1 - mt / 0.16; }
     }
+    if (shakeAmt > 0.002) { camera.position.x += (Math.random() - 0.5) * shakeAmt; camera.position.y += (Math.random() - 0.5) * shakeAmt * 0.6; shakeAmt *= Math.exp(-dtR * 5); }
+    renderer.render(scene, camera); return;
+  }
+  if (R3.camMode === 'tps' && runnerObj) {
+    updateTps(s, now);
     if (shakeAmt > 0.002) { camera.position.x += (Math.random() - 0.5) * shakeAmt; camera.position.y += (Math.random() - 0.5) * shakeAmt * 0.6; shakeAmt *= Math.exp(-dtR * 5); }
     renderer.render(scene, camera); return;
   }
@@ -769,22 +783,57 @@ R3.render = function (s) {
     shakeAmt *= Math.exp(-dtR * 5);
   } else renderer.render(scene, camera);
 };
+// 도망자가 향하는 방향(yaw) 목표: 움직이면 이동 방향, 멈춰 있고 앞이 벽이면 가장 길게 트인 방향 (1인칭·3인칭 공용)
+function isWallAt(x, y, off) { return x < 0 || y < 0 || x >= W || y >= FH || (wallIndex && wallIndex[(y + off) * W + x] >= 0) || barObjs.has((y + off) * W + x); }
+function runYawTarget(R, cur) {
+  let target = cur;
+  if (R.dx || R.dy) return Math.atan2(-R.dx, -R.dy);
+  const off = Math.round(R.f || 0) * FH, cx = Math.round(R.x), cy = Math.round(R.y), wall = (x, y) => isWallAt(x, y, off);
+  const fx = Math.round(-Math.sin(cur)), fy = Math.round(-Math.cos(cur));
+  if (wall(cx + fx, cy + fy)) {
+    let best = -1, bd = null;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { let n = 0; while (n < 12 && !wall(cx + dx * (n + 1), cy + dy * (n + 1))) n++; if (n > best) { best = n; bd = [dx, dy]; } }
+    if (bd && best > 0) target = Math.atan2(-bd[0], -bd[1]);
+  }
+  return target;
+}
+// 3인칭 카메라: 도망자 뒤·조금 위에서 이동 방향을 바라봄. 뒤쪽 벽이 몸을 가리면 카메라를 앞으로 당기고 조금 더 위에서 내려다봄
+function updateTps(s, now) {
+  const p = runnerObj.position, R = s.runner, dt = Math.min(0.1, Math.max(0.001, now - (tps.lastT || now))); tps.lastT = now;
+  let target = runYawTarget(R, tps.yaw), focus = p;
+  const catcherObj = s.result === 'giant' && giantObjs[s.catcher] ? giantObjs[s.catcher] : null;
+  if (catcherObj) { const dx = catcherObj.position.x - p.x, dz = catcherObj.position.z - p.z; if (Math.hypot(dx, dz) > 0.05) target = Math.atan2(-dx, -dz); focus = catcherObj.position; }
+  if (!tps.init) { tps.yaw = target; tps.dist = TPS.DIST; }
+  tps.yaw = angLerp(tps.yaw, target, 1 - Math.exp(-dt * 3.2));
+  tps.yaw = Math.atan2(Math.sin(tps.yaw), Math.cos(tps.yaw));
+  const fx = -Math.sin(tps.yaw), fz = -Math.cos(tps.yaw);
+  // 몸(가슴 높이)에서 카메라 쪽으로 칸을 따라가며 벽에 막히는 거리 찾기 (벽 높이 0.95)
+  const off = Math.round(R.f || 0) * FH, baseY = Math.round(R.f || 0) * FLOOR_Y, chest = 0.55;
+  let allow = TPS.DIST;
+  for (let t = 0.3; t <= TPS.DIST; t += 0.1) {
+    const h = chest + ((TPS.HEIGHT - chest) * t) / TPS.DIST; if (h > 1.0) break;
+    const gx = Math.round(R.x - fx * t), gy = Math.round(R.y - fz * t);
+    if ((gx !== Math.round(R.x) || gy !== Math.round(R.y)) && isWallAt(gx, gy, off)) { allow = Math.max(TPS.MIN, t - 0.15); break; }
+  }
+  // 거리 2.2 이내 뒤쪽이 막혀 있으면(코너·막다른 길) 조금 당겨서 벽 위에서 내려다보기
+  for (let t = 0.6; t <= 2.2 && allow === TPS.DIST; t += 0.2) { const gx = Math.round(R.x - fx * t), gy = Math.round(R.y - fz * t); if ((gx !== Math.round(R.x) || gy !== Math.round(R.y)) && isWallAt(gx, gy, off)) allow = Math.max(TPS.MIN + 0.6, Math.min(TPS.DIST, t + 0.9)); }
+  tps.dist += (allow - tps.dist) * Math.min(1, dt * (allow < tps.dist ? 10 : 2.5));
+  const lift = (TPS.DIST - tps.dist) * 0.35;
+  const want = tmpV.set(p.x - fx * tps.dist, baseY + TPS.HEIGHT + lift + (s.result === 'runner' ? p.y - baseY : 0), p.z - fz * tps.dist);
+  const lookW = new THREE.Vector3(focus.x + fx * (catcherObj ? 0 : TPS.LOOK_AHEAD), (catcherObj ? focus.y + 1.2 : baseY + TPS.LOOK_UP), focus.z + fz * (catcherObj ? 0 : TPS.LOOK_AHEAD));
+  if (!tps.init || !tps.pos) { tps.pos = want.clone(); tps.look = lookW.clone(); tps.init = true; }
+  const kp = 1 - Math.exp(-dt * 7);
+  tps.pos.lerp(want, kp); tps.look.lerp(lookW, kp);
+  camera.position.copy(tps.pos); camera.up.set(0, 1, 0); camera.lookAt(tps.look);
+  if (Math.abs(camera.fov - TPS.FOV) > 0.05) { camera.fov += (TPS.FOV - camera.fov) * Math.min(1, dt * 5); camera.updateProjectionMatrix(); }
+  if (controls) controls.target.copy(p); // 다른 시점으로 돌아갈 때 자연스럽게
+}
+R3.tpsState = tps;
 // 1인칭 카메라: 도망자 눈높이, 이동 방향을 부드럽게 따라 회전, 걸음 흔들림, 질주 시 시야 넓어짐, 거인 발소리 흔들림
 function updateFpv(s, now) {
   const p = runnerObj.position, dt = Math.min(0.1, Math.max(0.001, now - (fpv.lastT || now))); fpv.lastT = now;
   const R = s.runner;
-  let target = fpv.yaw;
-  if (R.dx || R.dy) target = Math.atan2(-R.dx, -R.dy);
-  else {
-    // 멈춰 있을 때 바로 앞이 벽이면 가장 길게 트인 방향으로 고개를 돌림
-    const off = Math.round(R.f || 0) * FH, cx = Math.round(R.x), cy = Math.round(R.y), wall = (x, y) => x < 0 || y < 0 || x >= W || y >= FH || (wallIndex && wallIndex[(y + off) * W + x] >= 0) || barObjs.has((y + off) * W + x);
-    const fx = Math.round(-Math.sin(fpv.yaw)), fy = Math.round(-Math.cos(fpv.yaw));
-    if (wall(cx + fx, cy + fy)) {
-      let best = -1, bd = null;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { let n = 0; while (n < 12 && !wall(cx + dx * (n + 1), cy + dy * (n + 1))) n++; if (n > best) { best = n; bd = [dx, dy]; } }
-      if (bd && best > 0) target = Math.atan2(-bd[0], -bd[1]);
-    }
-  }
+  let target = runYawTarget(R, fpv.yaw);
   let catcherObj = null;
   if (s.result === 'giant' && giantObjs[s.catcher]) catcherObj = giantObjs[s.catcher];
   let tPitch = 0.07;
