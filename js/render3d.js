@@ -24,7 +24,7 @@ let wallIndex = null, debris = [], shakeAmt = 0, lastNow = 0;
 const zeroM = new THREE.Matrix4().makeScale(0, 0, 0);
 // 아이템 / 바리케이드 / 효과 / 안개
 let itemObjs = new Map(), barObjs = new Map(), fxObjs = [], fogMesh = null, lastFogVer = -1, muzzle = null;
-const ITEM_ICON = { smoke: '💨', boost: '🚀', cloak: '👻', shotgun: '🔫', barricade: '🧱', roar: '🔊', tracker: '🐾' };
+const ITEM_ICON = { smoke: '💨', boost: '🚀', cloak: '👻', shotgun: '🔫', vault: '🤸', barricade: '🧱', roar: '🔊', tracker: '🐾' };
 const texCache = new Map();
 function emojiTex(ch, ring) {
   const key = ch + (ring || ''); if (texCache.has(key)) return texCache.get(key);
@@ -478,7 +478,7 @@ R3.fx = function (list, opt) {
       const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTex(), color: 0xffb030, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
       flash.position.set(fx + (tx - fx) / Math.max(1, len) * 0.5, cyF + 0.8, fz + (tz - fz) / Math.max(1, len) * 0.5); flash.scale.set(1.6, 1.6, 1);
       addFx(flash, 0.18, (t) => { flash.material.opacity = 1 - t / 0.18; });
-      const hit = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('💥'), transparent: true, depthWrite: false })); hit.position.set(tx, cyF + 1.6, tz); hit.scale.set(1.1, 1.1, 1);
+      const hit = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.miss ? '💨' : '💥'), transparent: true, depthWrite: false })); hit.position.set(tx, cyF + 1.6, tz); hit.scale.set(1.1, 1.1, 1);
       addFx(hit, 0.6, (t) => { hit.material.opacity = 1 - t / 0.6; const k = 1.1 + t; hit.scale.set(k, k, 1); });
       R3.muzzleT = nowS; shakeAmt = Math.max(shakeAmt, R3.camMode === 'fpv' ? 0.12 : 0.15);
     } else if (['roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn'].includes(e.t)) {
@@ -489,6 +489,15 @@ R3.fx = function (list, opt) {
       ring.rotation.x = -Math.PI / 2; ring.position.set(cx, cyF + 0.08, cz);
       addFx(ring, dur, (t) => { const k = 1 + (t / dur) * big; ring.scale.set(k, k, k); ring.material.opacity = 0.9 * (1 - t / dur); });
       if (e.t === 'roar') { shakeAmt = Math.max(shakeAmt, 0.25); if (giantObjs[e.giant]) giantObjs[e.giant].userData.roarT = nowS; }
+    } else if (e.t === 'vault') { // 벽넘기: 벽 위로 초록 호 + 🤸
+      const ox = wx(e.over % W), oz = wz((e.over / W) | 0), tx = wx(e.to % W), tz = wz((e.to / W) | 0);
+      const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(cx, cyF + 0.3, cz), new THREE.Vector3(ox, cyF + 3.2, oz), new THREE.Vector3(tx, cyF + 0.3, tz));
+      const arc = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.06, 6, false), new THREE.MeshBasicMaterial({ color: 0x7dffc8, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+      addFx(arc, 1.2, (t) => { arc.material.opacity = 0.9 * (1 - t / 1.2); });
+      const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🤸'), transparent: true, depthWrite: false })); ic.position.set(ox, cyF + 2.6, oz); ic.scale.set(1.3, 1.3, 1);
+      addFx(ic, 1.3, (t) => { ic.position.y = cyF + 2.6 + t * 0.8; ic.material.opacity = Math.max(0, 1 - t / 1.3); });
+      for (const [px, pz] of [[cx, cz], [tx, tz]]) { const ring = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.55, 40), new THREE.MeshBasicMaterial({ color: 0x7dffc8, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, fog: false })); ring.rotation.x = -Math.PI / 2; ring.position.set(px, cyF + 0.08, pz); addFx(ring, 0.8, (t) => { const k = 1 + t * 2.5; ring.scale.set(k, k, k); ring.material.opacity = 0.9 * (1 - t / 0.8); }); }
+      shakeAmt = Math.max(shakeAmt, 0.06);
     } else if (e.t === 'barricadeBreak') {
       const mat = new THREE.MeshStandardMaterial({ color: 0x9b6a3c, roughness: 0.8, transparent: true, opacity: 1 });
       for (let k = 0; k < 12; k++) {
@@ -600,7 +609,7 @@ R3.render = function (s) {
   if (runnerObj) {
     const caught = s.result === 'giant', escaped = s.result === 'runner';
     runnerObj.visible = !caught && R3.camMode !== 'fpv'; // 1인칭에서는 자기 몸을 숨김
-    runnerObj.position.set(wx(s.runner.x), (s.runner.f || 0) * FLOOR_Y + (escaped ? Math.min(1.5, (s.endT || 0) * 1.5) : 0), wz(s.runner.y));
+    runnerObj.position.set(wx(s.runner.x), (s.runner.f || 0) * FLOOR_Y + (escaped ? Math.min(1.5, (s.endT || 0) * 1.5) : 0) + (s.runner.jump || 0) * 1.6, wz(s.runner.y)); // 벽넘기 점프
     if (Math.round(s.runner.f || 0) !== focusF && R3.camMode !== 'fpv') runnerObj.visible = false;
     if (runnerObj.userData.gem) { runnerObj.userData.gem.visible = !!s.runner.gem; runnerObj.userData.gem.rotation.y = now * 3; }
     if (s.runner.dx || s.runner.dy) runnerObj.rotation.y = angLerp(runnerObj.rotation.y, Math.atan2(s.runner.dx, s.runner.dy), 0.25);

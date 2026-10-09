@@ -45,9 +45,10 @@
     const rp = g.runner.path, [rx, ry, rf] = lerpPath(rp, t);
     const [ax, ay] = xy(rp[0]), [bx, by] = xy(rp[rp.length - 1]);
     const plateIdx = g.map.missions.findIndex((M) => M.plate === g.runner.pos);
+    const jump = g.runner.vaultTurn === g.turn && !g.result ? Math.sin(Math.PI * t) : 0; // 벽넘기 점프 높이(0~1)
     return {
       t,
-      runner: { x: rx, y: ry, f: rf, dx: bx - ax, dy: by - ay, sprint: g.runner.sprintLeft > 0, boost: g.runner.boost > 0, cloak: g.runner.cloak > 0, hasKey: g.keysHeld > 0, gem: g.runner.gem >= 0, onPlate: plateIdx },
+      runner: { x: rx, y: ry, f: rf, dx: bx - ax, dy: by - ay, sprint: g.runner.sprintLeft > 0, boost: g.runner.boost > 0, cloak: g.runner.cloak > 0, hasKey: g.keysHeld > 0, gem: g.runner.gem >= 0, onPlate: plateIdx, jump },
       giants: g.giants.map((G) => { const [x, y, f] = lerpPath(G.path, t); return { x, y, f, fx: G.facing[0], fy: G.facing[1], dash: G.dashLeft > 0 || G.path.length > 2, ban: G.doorBan > 0 || G.keyBan > 0, smashReady: G.smashCd <= 0, stun: G.stun > 0, blind: G.blind > 0, track: G.track > 0, out: G.out > 0, outSec: Math.ceil(G.out / tpsNow()), home: (() => { const h = g.map.giantStarts[G.id]; return { x: h % CFG.W, y: ((h / CFG.W) | 0) % FH, f: flo(h) }; })() }; }),
       snakes: g.snakes.map((S) => ({ f: S.floor, hidden: S.hidden > 0, len: S.body.length, segs: S.body.map((c, j) => { const a = S.prevBody[Math.min(j, S.prevBody.length - 1)], [x0, y0, f0] = xyf(a), [x1, y1, f1] = xyf(c); return Math.abs(x1 - x0) + Math.abs(y1 - y0) > 1.5 ? { x: x1, y: y1, f: f1 } : { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t, f: f0 + (f1 - f0) * t }; }) })),
     };
@@ -130,7 +131,8 @@
       const cell0 = f.e.cell != null ? f.e.cell : f.e.from; if (cell0 == null || !on(cell0)) continue;
       const [x, y] = xy(cell0);
       if (f.e.t === 'smoke') { const a = Math.min(1, age * 3) * Math.min(1, (f.dur - age) / 0.6); c.fillStyle = `rgba(210,214,224,${(0.55 * a).toFixed(2)})`; for (let q = 0; q < 6; q++) { const ang = q + age * 0.6; c.beginPath(); c.arc((x + .5 + Math.cos(ang) * 1.3) * T, (y + .5 + Math.sin(ang) * 1.3) * T, T * (1.3 + 0.3 * Math.sin(q + age)), 0, 7); c.fill(); } }
-      else if (f.e.t === 'shot' && age < 0.25) { const [tx, ty] = xy(f.e.to); c.strokeStyle = `rgba(255,220,120,${(1 - age / 0.25).toFixed(2)})`; c.lineWidth = Math.max(2, T * 0.15); c.beginPath(); c.moveTo((x + .5) * T, (y + .5) * T); c.lineTo((tx + .5) * T, (ty + .5) * T); c.stroke(); if (!mini) emoji(c, '💥', (tx + .5) * T, (ty + .5) * T, T); }
+      else if (f.e.t === 'shot' && age < 0.25) { const [tx, ty] = xy(f.e.to); c.strokeStyle = `rgba(255,220,120,${(1 - age / 0.25).toFixed(2)})`; c.lineWidth = Math.max(2, T * 0.15); c.beginPath(); c.moveTo((x + .5) * T, (y + .5) * T); c.lineTo((tx + .5) * T, (ty + .5) * T); c.stroke(); if (!mini) emoji(c, f.e.miss ? '💨' : '💥', (tx + .5) * T, (ty + .5) * T, T); }
+      else if (f.e.t === 'vault' && age < 1) { const [ox, oy] = xy(f.e.over); c.strokeStyle = `rgba(120,255,200,${(1 - age).toFixed(2)})`; c.lineWidth = Math.max(2, T * 0.12); c.beginPath(); const [tx, ty] = xy(f.e.to); c.moveTo((x + .5) * T, (y + .5) * T); c.quadraticCurveTo((ox + .5) * T, (oy - .6) * T, (tx + .5) * T, (ty + .5) * T); c.stroke(); if (!mini) emoji(c, '🤸', (ox + .5) * T, (oy + .2 - age * 0.6) * T, T * 0.9); }
       else if ((f.e.t === 'roar' || f.e.t === 'eat' || f.e.t === 'chest') && age < 1.2) { c.strokeStyle = f.e.t === 'roar' ? `rgba(255,80,80,${(1 - age / 1.2).toFixed(2)})` : f.e.t === 'eat' ? `rgba(80,230,110,${(1 - age / 1.2).toFixed(2)})` : `rgba(255,213,74,${(1 - age / 1.2).toFixed(2)})`; c.lineWidth = 3; c.beginPath(); c.arc((x + .5) * T, (y + .5) * T, T * (1 + age * (f.e.t === 'roar' ? 9 : 4)), 0, 7); c.stroke(); }
     }
     // 전장의 안개
@@ -324,11 +326,14 @@
     const set = new Set();
     g.giants.forEach((G, k) => { if (G.out > 0) return; for (const i of g.map.floor) if (GE.giantSees(g, k, i)) set.add(i); });
     app.vision = [...set]; app.visionVer++;
-    if (STREAM) hudStatus();
+    if (STREAM) { hudStatus(); hudAmmo(); }
     fpvHudUpdate();
   }
-  function invText(inv, pre) {
-    const parts = R_ITEMS.filter((t) => inv[t] > 0).map((t) => t === 'shotgun' ? `🔫샷건 ${inv[t]}/${CFG.SHOTGUN_AMMO}` : II[t].icon + (inv[t] > 1 ? '×' + inv[t] : ''));
+  // 샷건(기본 스킬): n/2 + 장전 진행률
+  function reloadFrac() { const R = app.game && app.game.runner; if (!R || R.inv.shotgun >= CFG.SHOTGUN_AMMO) return 1; return Math.min(1, (R.reload || 0) / GE.secTurns(CFG.SHOTGUN_RELOAD_SEC)); }
+  function shotgunText() { const R = app.game.runner, n = R.inv.shotgun; return `🔫샷건 ${n}/${CFG.SHOTGUN_AMMO}` + (n < CFG.SHOTGUN_AMMO ? ` (장전 ${Math.round(reloadFrac() * 100)}%)` : ''); }
+  function invText(inv, pre, noGun) {
+    const parts = R_ITEMS.filter((t) => t === 'shotgun' ? !noGun : inv[t] > 0).map((t) => t === 'shotgun' ? shotgunText() : II[t].icon + (inv[t] > 1 ? '×' + inv[t] : ''));
     return parts.length ? pre + parts.join(' ') : '';
   }
   function tick() {
@@ -521,7 +526,7 @@
     $('fh-smash').textContent = ready.length ? `벽부수기 준비: 거인${ready.join('·')}` : `다음 벽부수기 ${Math.ceil(nextCd / tpsNow())}초`;
     $('fh-smashRow').classList.toggle('warn', ready.length > 0);
     // 아이템 가방 + 효과
-    for (const el of fpvEl.hud.querySelectorAll('.fh-item')) { const n = R.inv[el.dataset.it]; el.classList.toggle('has', n > 0); el.querySelector('b').textContent = el.dataset.it === 'shotgun' ? (n > 0 ? `${n}/${CFG.SHOTGUN_AMMO}` : '') : n > 1 ? n : ''; }
+    for (const el of fpvEl.hud.querySelectorAll('.fh-item')) { const n = R.inv[el.dataset.it]; el.classList.toggle('has', n > 0); if (el.dataset.it === 'shotgun') el.classList.add('has'); el.querySelector('b').textContent = el.dataset.it === 'shotgun' ? `${n}/${CFG.SHOTGUN_AMMO}${n < CFG.SHOTGUN_AMMO ? ' ⏳' + Math.round(reloadFrac() * 100) + '%' : ''}` : n > 1 ? n : ''; }
     const fx = [];
     if (R.cloak > 0) fx.push(`👻 투명 ${R.cloak}턴`);
     if (R.boost > 0) fx.push(`🚀 부스터 ${R.boost}턴`);
@@ -583,6 +588,7 @@
       <div class="hud-grow" id="h-grow"></div>
       <div class="hud-info" id="h-info"></div>
       <div class="hud-status" id="h-status"></div>
+      <div class="hud-ammo" id="h-ammo"><div class="am-top"><span class="am-ic">🔫</span><span class="am-name">샷건</span><b id="h-ammoN">2/2</b><span class="am-shells" id="h-shells"></span></div><div class="am-bar"><i id="h-reload"></i></div><div class="am-sub" id="h-ammoSub">장전 완료</div></div>
       <ul class="hud-log" id="h-log"></ul>`;
     stageEl.appendChild(hud);
   }
@@ -598,7 +604,16 @@
   function hudStatus() {
     const g = app.game; if (!hud || !g) return;
     const d = app.nearD ?? 999;
-    $('h-status').textContent = `🏢 ${flo(g.runner.pos) + 1}층 · 🧩 ${g.missionText()} · 🐍 거인 ${g.snakeAte.giants}마리 꿀꺽 · ⏱ 턴 ${g.turn} · 🔑 ${g.keysHeld}/${app.map.keys.length}${g.keysLeft.length ? '' : ' 문 열림!'} · 📏 거인까지 ${d >= 999 ? '-' : d + '칸'} · 🏃 ${g.runner.mode}${g.runner.sprintLeft > 0 ? ' ⚡' : ''}${g.runner.boost > 0 ? ' 🚀' : ''}${g.runner.cloak > 0 ? ' 👻' : ''}${invText(g.runner.inv, ' · 🎒 ')}${g.giants.some((G) => G.stun > 0) ? ' · 💫 기절 ' + g.giants.filter((G) => G.stun > 0).map((G) => G.id + 1).join('·') : ''}`;
+    $('h-status').textContent = `🏢 ${flo(g.runner.pos) + 1}층 · 🧩 ${g.missionText()} · 🐍 거인 ${g.snakeAte.giants}마리 꿀꺽 · ⏱ 턴 ${g.turn} · 🔑 ${g.keysHeld}/${app.map.keys.length}${g.keysLeft.length ? '' : ' 문 열림!'} · 📏 거인까지 ${d >= 999 ? '-' : d + '칸'} · 🏃 ${g.runner.mode}${g.runner.sprintLeft > 0 ? ' ⚡' : ''}${g.runner.boost > 0 ? ' 🚀' : ''}${g.runner.cloak > 0 ? ' 👻' : ''}${invText(g.runner.inv, ' · 🎒 ', true)}${g.giants.some((G) => G.stun > 0) ? ' · 💫 기절 ' + g.giants.filter((G) => G.stun > 0).map((G) => G.id + 1).join('·') : ''}`;
+  }
+  function hudAmmo() {
+    const g = app.game; if (!hud || !g) return;
+    const n = g.runner.inv.shotgun, max = CFG.SHOTGUN_AMMO, fr = reloadFrac();
+    $('h-ammoN').textContent = `${n}/${max}`;
+    $('h-shells').innerHTML = Array.from({ length: max }, (_, i) => `<span class="sh${i < n ? ' on' : ''}"></span>`).join('');
+    $('h-reload').style.width = Math.round((n >= max ? 1 : fr) * 100) + '%';
+    $('h-ammo').classList.toggle('full', n >= max); $('h-ammo').classList.toggle('empty', n === 0);
+    $('h-ammoSub').textContent = n >= max ? '장전 완료' : `장전 중… ${Math.round(fr * 100)}% (${CFG.SHOTGUN_RELOAD_SEC}초에 1발)`;
   }
   function hudLog(text, cls) {
     if (!hud) return;
@@ -645,7 +660,7 @@
   // 미리보기: 주소에 ?giants=N (4~10)을 붙이면 그 인원으로 시작. 저장은 하지 않음 (진짜 기록은 그대로)
   { const pg = +(new URLSearchParams(location.search).get('giants') || 0); if (pg > trainer.giantCount && pg <= CFG.GIANTS_MAX) { app.preview = true; while (trainer.giantCount < pg) trainer.addGiant(); renderGenes(); updateGiantCount(); newRound(true); log(`👀 미리보기: 거인 ${pg}명 (저장 안 함)`, 'grow'); } }
   app.testRunnerWins = (n) => { for (let i = 0; i < n; i++) { const added = trainer.recordVisible('runner', -1); if (added.length) log(`도망자 ${trainer.growWins}승! 거인이 한 명 늘었다 👹 (거인${added.map((k) => k + 1).join('·')} 등장 — 이제 ${trainer.giantCount}명)`, 'grow'); } renderGenes(); updateGiantCount(); hudUpdate(); };
-  log(`👋 ▶ 시작을 누르면 도망자 1명과 거인 ${trainer.giantCount}명이 2층 미로에서 대결합니다. 💥 거인은 30초마다 벽을 부술 수 있고, 도망자가 ${CFG.WINS_PER_GIANT}승 할 때마다 거인이 1명씩 늘어납니다(최대 ${CFG.GIANTS_MAX}명).`); log(' 🧰 열쇠는 잠긴 상자 안 — 미션(🕹️스위치 켜기 · 💎보석 옮기기 · ⏳발판 버티기)을 풀어야 열립니다. 🐍 뷱은 알약💊을 먹고 길어지며 거인도 도망자도 삼킵니다(꼬리를 잡으면 잠시 숨음). 🌫 도망자는 직접 본 곳만 기억합니다(전체 지도 보기로 전체 공개). 🎒 도망자 아이템: 💨연막탄 🚀부스터 👻투명망토 🔫샷건(3초 기절) 🧱바리케이드 · 거인 아이템: 🔊포효 🐾냄새 추적기 🚧바리케이드. 💥 거인은 각자 30초 쿨타임으로 안쪽 벽·바리케이드를 부숩니다(바깥 벽·문 근처·계단은 불가). 👀 도망자 시점 버튼으로 1인칭으로 볼 수 있어요. ⚡ 빠른 훈련으로 수백 판을 순식간에 학습시킬 수 있어요.', 'learn');
+  log(`👋 ▶ 시작을 누르면 도망자 1명과 거인 ${trainer.giantCount}명이 2층 미로에서 대결합니다. 💥 거인은 30초마다 벽을 부술 수 있고, 도망자가 ${CFG.WINS_PER_GIANT}승 할 때마다 거인이 1명씩 늘어납니다(최대 ${CFG.GIANTS_MAX}명).`); log(` 🧰 열쇠는 잠긴 상자 안 — 미션(🕹️스위치 켜기 · 💎보석 옮기기 · ⏳발판 버티기)을 풀어야 열립니다. 🐍 뷱은 알약💊을 먹고 길어지며 거인을 삼킵니다 — 도망자는 뷱을 그냥 통과합니다(꼬리를 잡으면 잠시 숨음). 🌫 도망자는 직접 본 곳만 기억합니다(전체 지도 보기로 전체 공개). 🔫 도망자 기본 스킬 샷건: 최대 ${CFG.SHOTGUN_AMMO}발, ${CFG.SHOTGUN_RELOAD_SEC}초마다 1발 장전, 맞으면 ${CFG.STUN_SEC}초 기절(멀수록 잘 빗나감). 🎒 도망자 아이템: 💨연막탄 🚀부스터 👻투명망토 🤸벽넘기 🧱바리케이드 · 거인 아이템: 🔊포효 🐾냄새 추적기 🚧바리케이드. 💥 거인은 각자 30초 쿨타임으로 안쪽 벽·바리케이드를 부숩니다(바깥 벽·문 근처·계단은 불가). 👀 도망자 시점 버튼으로 1인칭으로 볼 수 있어요. ⚡ 빠른 훈련으로 수백 판을 순식간에 학습시킬 수 있어요.`, 'learn');
   setView(window.Render3D ? '3d' : '2d');
   if (window.Render3D) init3D();
   if (STREAM) streamStart();

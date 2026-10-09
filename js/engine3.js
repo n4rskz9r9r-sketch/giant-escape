@@ -16,21 +16,21 @@
     SMASH_FIRST_SEC: 10,     // 판 시작 후 첫 벽 부수기까지 (10초)
     MAX_TURNS: 1100,
     VISION: 9,               // 도망자 시야
-    HEAR: 9,                 // 도망자 청각 (미로 거리)
+    HEAR: 7,                 // 도망자 청각 (미로 거리)
     GIANT_VISION: 5,         // 거인 시야 반경
     GIANT_CONE_COS: 0.5,     // 앞쪽 120° 부채꼴
-    GIANT_SKIP_MIN: 3, GIANT_SKIP_MAX: 6,   // 거인은 N턴에 1번 쉰다 (3명이라 느리게) ('속도 집중' 유전자)
+    GIANT_SKIP_MIN: 5, GIANT_SKIP_MAX: 8,   // 거인은 N턴에 1번 쉰다 (3명이라 느리게) ('속도 집중' 유전자)
     GIANT_HEAR_MAX: 4, GIANT_HEAR_MIN: 1,   // v11: 5→4
     CALL_RANGE: 14,          // '호출' 유전자 최대 전달 거리
-    GIANT_REST_P: 0.12,      // 추가 휴식 확률 (4명이 된 만큼 약간 느리게)
+    GIANT_REST_P: 0,         // 추가 휴식 확률 (v16: 0.12→0 — 도망자 기본 샷건·뷱 통과 보정)
     DASH_LEN: 2, DASH_COOLDOWN: 32,
-    SPRINT_LEN: 3, SPRINT_COOLDOWN: 13,   // v11: 16→13 (벽 부수기 상시 능력·부활 5초 보정)     // 도망자 전력질주
+    SPRINT_LEN: 2, SPRINT_COOLDOWN: 13,   // v11: 16→13 (벽 부수기 상시 능력·부활 5초 보정)     // 도망자 전력질주
     DOOR_LINGER: 8, DOOR_BAN: 14,
     KEY_LINGER: 14, KEY_BAN: 30,
     // 열쇠 미션: 열쇠는 잠긴 상자 안 → 미션을 끝내야 열림 (맵마다 3종 중 2종)
     LEVERS: 3, PLATE_TURNS: 4, PLATE_NOISE: 11,
-    // 뷱(뱀): 전체 1마리(계단으로 두 층을 오감), 거인과 도망자를 모두 잡아먹음. 꼬리를 잡으면 잠시 땅속으로 숨음
-    SNAKES: 1, SNAKES_PER_FLOOR: 1, SNAKE_LEN: 4, SNAKE_MAX: 18, SNAKE_GROW_GIANT: 2, SNAKE_GROW_PILL: 1, SNAKE_SENSE: 6, SNAKE_SKIP: 3, SNAKE_PREFER_GIANT: 2,
+    // 뷱(뱀): 전체 1마리(계단으로 두 층을 오감), 거인만 잡아먹음 (v16: 도망자는 뷱을 그냥 통과). 꼬리를 잡으면 잠시 땅속으로 숨음
+    SNAKES: 1, SNAKES_PER_FLOOR: 1, SNAKE_LEN: 4, SNAKE_MAX: 18, SNAKE_GROW_GIANT: 2, SNAKE_GROW_PILL: 1, SNAKE_SENSE: 1, SNAKE_SKIP: 3, SNAKE_PREFER_GIANT: 2,
     SNAKE_DIGEST_SEC: 5,     // 뷱에게 먹힌 거인은 5초(50턴) 뒤 출발점에서 부활
     SNAKE_HIDE: 40, SNAKE_REST: 12,
     // 알약: 뷱만 먹음, 먹을 때마다 한 칸 길어짐 (최대 SNAKE_MAX)
@@ -42,8 +42,10 @@
     SMOKE_RADIUS: 3, SMOKE_TURNS: 6,
     BOOST_TURNS: 4,
     CLOAK_TURNS: 7,
-    SHOTGUN_AMMO: 2,         // 샷건을 주우면 정확히 2발 (다 쏘면 샷건 없어짐, 2발 남아 있으면 줍지 않음)
-    SHOTGUN_RANGE: 4, STUN_SEC: 3,
+    SHOTGUN_AMMO: 2,         // v16: 샷건은 도망자 기본 스킬. 최대 2발, 처음 2발, 2발 미만이면 5초(50턴)마다 1발 장전
+    SHOTGUN_RELOAD_SEC: 5,
+    SHOTGUN_RANGE: 4, STUN_SEC: 2, SHOTGUN_HIT: 1, SHOTGUN_FALLOFF: 0.3,   // 명중률: 코앞(1칸) SHOTGUN_HIT, 한 칸 멀어질 때마다 -FALLOFF (빗나가면 탄만 씀)
+    SHOT_NOISE: 12,          // v16: 총소리가 들리는 미로 거리 (샷건이 공짜가 된 만큼 쏘면 다른 거인이 몰려옴)
     BARRICADE_HP: 3,
     TRACK_TURNS: 10,
     FRONTIER_COST: 6,        // 전장의 안개: 미탐색 경계로 가는 비용(알려진 열쇠가 있으면 그쪽을 우선)
@@ -305,9 +307,9 @@
     { key: 'barricade', label: '바리케이드 설치', up: '도망자가 쫓기면 뒤에 바리케이드를 치는 법을 배웠다', down: '도망자가 바리케이드를 아껴 둔다' },
     { key: 'missionOrder', label: '미션 마무리 우선', up: '도망자가 거의 끝난 미션부터 마무리한다', down: '도망자가 가까운 미션부터 손댄다' },
     { key: 'plateNerve', label: '발판 배짱', up: '도망자가 거인이 다가와도 발판 위에서 버틴다', down: '도망자가 거인 기척이 나면 발판에서 바로 내려온다' },
-    { key: 'snakeFear', label: '뷱 경계', up: '도망자가 뷱 머리를 멀리서부터 피한다', down: '도망자가 뷱 가까이에서도 태연하다' },
     { key: 'snakeLure', label: '뷱 유인', up: '도망자가 거인을 뷱 쪽으로 끌고 가는 법을 배웠다', down: '도망자가 뷱 근처로 거인을 데려가지 않는다' },
     { key: 'tailGrab', label: '꼬리 잡기', up: '도망자가 뷱의 꼬리를 잡아 쫓아내는 법을 배웠다', down: '도망자가 뷱 꼬리에 손대지 않는다' },
+    { key: 'vault', label: '벽넘기', up: '도망자가 벽넘기를 과감하게 쓰기 시작했다', down: '도망자가 벽넘기를 아껴 큰 위기·큰 지름길에만 쓴다' },
   ];
   const GIANT_GENES = [
     { key: 'stride', label: '속도 집중', up: '거인이 귀 대신 다리를 단련해 더 빨라졌다', down: '거인이 속도를 줄이고 청각을 키웠다' },
@@ -328,7 +330,7 @@
     { key: 'snakeSense', label: '뷱 피하기', up: '거인이 뷱 냄새를 맡고 멀리 돌아간다', down: '거인이 뷱을 신경 쓰지 않는다' },
   ];
   // Lv.1 초보 두뇌 (일부러 서툰 값). 거인은 처음부터 역할이 조금씩 다르게 출발
-  function defaultRunner() { return { danger: 0.5, flee: 0.35, greed: 0.7, loop: 0.3, predict: 0.5, memory: 0.4, keySafe: 0.35, sprint: 0.3, itemGreed: 0.4, panic: 0.4, shotgun: 0.4, barricade: 0.4, missionOrder: 0.4, plateNerve: 0.4, snakeFear: 0.5, snakeLure: 0.3, tailGrab: 0.3 }; }
+  function defaultRunner() { return { danger: 0.5, flee: 0.35, greed: 0.7, loop: 0.3, predict: 0.5, memory: 0.4, keySafe: 0.35, sprint: 0.3, itemGreed: 0.4, panic: 0.4, shotgun: 0.4, barricade: 0.4, missionOrder: 0.4, plateNerve: 0.4, snakeFear: 0.5, snakeLure: 0.3, tailGrab: 0.3, vault: 0.4 }; }
   function defaultGiantOne(k) {
     const base = { stride: 0.5, intercept: 0.5, lookahead: 0.5, ambush: 0.3, dash: 0.1, patience: 0.3, scent: 0.2, exitGuard: 0.3, spread: 0.1, call: 0.2, smash: 0.3, roar: 0.4, tracker: 0.4, blockade: 0.3, guard: 0.3, snakeSense: 0.4 };
     if (k === 0) Object.assign(base, { intercept: 0.15, scent: 0.4 });           // 추격조
@@ -354,7 +356,7 @@
       this.doorWatch = [-1, -1]; // 문마다 감시 거인은 최대 1명
       const n = giantTeam.length; // 거인 수 = 팀 유전자 수 (출발점은 맵에 GIANTS_MAX개 준비)
       this.runner = { pos: map.runnerStart, prev: map.runnerStart, path: [map.runnerStart], known: new Array(n).fill(-1), knownTurn: new Array(n).fill(-999), target: -1, door: -1, mode: '탐색', sprintLeft: 0, sprintCd: 0,
-        seen: new Uint8Array(map.W * map.H), inv: { smoke: 0, boost: 0, cloak: 0, shotgun: 0, barricade: 0 }, cloak: 0, boost: 0, used: 0 };
+        seen: new Uint8Array(map.W * map.H), inv: { shotgun: CFG.SHOTGUN_AMMO, smoke: 0, boost: 0, cloak: 0, vault: 0, barricade: 0 }, reload: 0, cloak: 0, boost: 0, used: 0, vaults: 0 };
       this.giants = map.giantStarts.slice(0, n).map((s, k) => ({
         id: k, pos: s, prev: s, path: [s], facing: DIRS[((seed >>> 3) + k) & 3].slice(),
         know: -1, knowTurn: -999, saw: false, mode: '순찰', goal: -1, patrol: -1, modeSince: 0, ambushSpot: -1,
@@ -394,7 +396,7 @@
     spawnItem(side) {
       const m = this.map;
       side = side || (this.rng() < CFG.ITEM_R_SHARE ? 'R' : 'G');
-      const types = side === 'R' ? R_ITEMS : G_ITEMS;
+      const types = side === 'R' ? (CFG.R_SPAWN_LIST || R_SPAWN) : G_ITEMS;
       const type = types[Math.floor(this.rng() * types.length)];
       const taken = new Set(this.items.map((it) => it.cell).concat(this.keysLeft, this.barricades.map((b) => b.cell), [this.runner.pos], this.giants.map((G) => G.pos)));
       const sp = m.itemSpots.filter((i) => m.g[i] === 0 && !taken.has(i));
@@ -481,21 +483,30 @@
         if (near <= 1 + Math.round(this.rg.sprint * 5)) { R.sprintLeft = CFG.SPRINT_LEN; R.sprintCd = CFG.SPRINT_COOLDOWN; this.log('sprint', '도망자가 전력질주한다! ⚡'); }
       }
       if (R.cloak > 0) R.cloak--;
+      // 샷건 장전 (기본 스킬): 2발 미만이면 5초마다 1발
+      if (R.inv.shotgun < CFG.SHOTGUN_AMMO) { if (++R.reload >= secTurns(CFG.SHOTGUN_RELOAD_SEC)) { R.inv.shotgun++; R.reload = 0; } } else R.reload = 0;
       runnerUseItems(this);
       if (R.sprintLeft > 0) { rMoves = 2; R.sprintLeft--; }
       if (R.boost > 0) { rMoves = 2; R.boost--; }
       R.path = [R.pos];
       for (let s = 0; s < rMoves; s++) {
         R.prev = R.pos;
+        R.vaultOver = -1;
         R.pos = runnerDecide(this);
+        if (R.vaultOver >= 0) { // 벽넘기: 안쪽 벽(또는 바리케이드) 한 칸을 뛰어넘음
+          R.inv.vault--; R.used++; R.vaults++; R.vaultTurn = this.turn;
+          R.path.push(R.vaultOver); // 화면 보간용: 벽 위를 지나가는 점
+          this.fx.push({ t: 'vault', from: R.prev, over: R.vaultOver, to: R.pos, cell: R.prev, turn: this.turn });
+          this.log('vault', '🤸 도망자 벽넘기!');
+        }
         R.path.push(R.pos);
         this.scent[R.prev] = this.turn - 1; this.scent[R.pos] = this.turn;
-        const ii = this.items.findIndex((it) => it.cell === R.pos && it.side === 'R' && !(it.type === 'shotgun' && R.inv.shotgun >= CFG.SHOTGUN_AMMO));
+        const ii = this.items.findIndex((it) => it.cell === R.pos && it.side === 'R');
         if (ii >= 0) {
           const it = this.items[ii]; this.items.splice(ii, 1);
-          if (it.type === 'shotgun') R.inv.shotgun = CFG.SHOTGUN_AMMO; else R.inv[it.type]++;
+          R.inv[it.type] = (R.inv[it.type] || 0) + 1;
           this.fx.push({ t: 'pickup', cell: R.pos, type: it.type, who: -1, turn: this.turn });
-          this.log('item', `도망자가 ${ITEM_INFO[it.type].obj} 주웠다! ${ITEM_INFO[it.type].icon}${it.type === 'shotgun' ? ` (샷건 ${CFG.SHOTGUN_AMMO}/${CFG.SHOTGUN_AMMO})` : ''}`);
+          this.log('item', `도망자가 ${ITEM_INFO[it.type].obj} 주웠다! ${ITEM_INFO[it.type].icon}`);
         }
         this.missionTouch(R.pos);
         if (this.keysLeft.includes(R.pos) && this.ms[m.keyMission[R.pos]].done) {
@@ -504,7 +515,7 @@
         }
         const gi = this.catcherAt(R.pos);
         if (gi >= 0) { this.catcher = gi; return this.finish('giant'); }
-        if (this.snakeAtHead(R.pos)) return this.snakeEatsRunner(this.snakeAtHead(R.pos));
+        // v16: 뷱은 도망자를 먹지 않음 (도망자는 뷱 머리·몸통을 그냥 지나감)
         for (const S of this.snakes) { // 꼬리 잡기
           const tail = S.body[S.body.length - 1];
           if (S.hidden <= 0 && R.pos === tail && tail !== S.body[0] && new Set(S.body).size >= 3) {
@@ -690,12 +701,8 @@
       const h = S.body[0]; R.snake = R.snake || {};
       if (sees(m, R.pos, h) || bfsC(m, R.pos, 0)[h] <= 3) { if (!R.snake[S.id] || game.turn - R.snake[S.id].turn > 6) game.log('spot', '도망자가 뷱을 발견했다! 🐍'); R.snake[S.id] = { head: h, tail: S.body[S.body.length - 1], turn: game.turn }; }
       const kn = R.snake[S.id]; if (!kn || game.turn - kn.turn > 8) continue;
-      const d = bfsC(m, kn.head, 3), age = game.turn - kn.turn, fear = (g.snakeFear ?? 0.5);
-      snakeD.push({ d, tail: kn.tail, fresh: age === 0, head: kn.head });
-      if (age === 0) freshPos.push(kn.head);
-      if (!dRaw) { dRaw = new Float32Array(N).fill(999); dEff = new Float32Array(N).fill(999); }
-      const off = (1 - fear) * 4;
-      for (const i of m.floor) { if (d[i] >= 999) continue; const e = d[i] + off - age * 0.6; if (d[i] + off < dRaw[i]) dRaw[i] = d[i] + off; if (e < dEff[i]) dEff[i] = e; }
+      // v16: 뷱은 도망자에게 위협이 아님 (꼬리 잡기·거인 유인에만 씀)
+      snakeD.push({ d: bfsC(m, kn.head, 3), tail: kn.tail, fresh: game.turn === kn.turn, head: kn.head });
     }
     // 발판 위: '발판 배짱'만큼 거인이 가까워질 때까지 버팀
     for (let mi = 0; mi < m.missions.length; mi++) {
@@ -749,7 +756,7 @@
     for (const c of rN[R.pos]) if (c === target && !freshPos.includes(c) && (!dRaw || dRaw[c] > 1 || (m.isExit[c] && all))) { R.mode = '돌파'; return c; }
     const fleeing = dEff && dEff[R.pos] - predictShift * 0.5 <= fleeR;
     let best = -Infinity, choice = R.pos;
-    for (const c of rN[R.pos].concat([R.pos])) {
+    const scoreOf = (c) => {
       let s; const dt = Math.min(distT[c], 300);
       if (fleeing) {
         let esc = 0;
@@ -758,27 +765,56 @@
       } else s = -dt - (c === R.pos ? 0.5 : 0);
       if (dRaw && dRaw[c] <= 1 && !(m.isExit[c] && all)) s -= 1000;
       if (freshPos.includes(c)) s -= 5000;
-      if (game.snakes.length && c !== R.pos && game.snakeBody().has(c) && !game.snakes.some((S) => S.body[S.body.length - 1] === c)) s -= 2500; // 몸통은 못 지나감
       for (const sd of snakeD) {
-        if (sd.d[c] <= 1) s -= 3000; // 뷱 머리 옆은 절대 금지
         if (c === sd.tail && sd.d[c] >= 3) s += (g.tailGrab ?? 0.3) * 40 - 8; // 꼬리 잡기
         if (fleeing && sd.d[c] >= 2 && sd.d[c] <= 6) s += (g.snakeLure ?? 0.3) * (6 - Math.abs(sd.d[c] - 3.5)) * 2; // 거인을 뷱 쪽으로 유인
       }
       if (c === R.prev && c !== R.pos) s -= 0.3;
       s += game.rng() * 0.01;
       if (game.debug) (game.dbg = game.dbg || []).push({ c, s, dt: distT[c], dRaw: dRaw ? dRaw[c] : -1, fleeing });
-      if (s > best) { best = s; choice = c; }
+      return s;
+    };
+    for (const c of rN[R.pos].concat([R.pos])) { const s = scoreOf(c); if (s > best) { best = s; choice = c; } }
+    // 벽넘기 아이템: 안쪽 벽/바리케이드 한 칸 너머의 (아는) 빈 바닥으로. '벽넘기' 유전자가 높을수록 작은 이득에도 사용
+    if (R.inv.vault > 0) {
+      const vg = g.vault ?? 0.4, need = fleeing ? 4 + (1 - vg) * 30 : 3 + Math.round((1 - vg) * 12);
+      let vBest = -Infinity, vTo = -1, vOver = -1;
+      for (const [over, to] of vaultMoves(game)) {
+        if (!seenS[to] || freshPos.includes(to)) continue;
+        const s = scoreOf(to); if (s > vBest) { vBest = s; vTo = to; vOver = over; }
+      }
+      if (vTo >= 0 && vBest - best >= need) { R.vaultOver = vOver; R.mode = '벽넘기'; return vTo; }
     }
     R.mode = fleeing ? '도주' : (!known ? '탐색' : m.isMission[target] ? '미션' : dRaw ? '경계' : '목표로');
     return choice;
   }
 
+  // 벽넘기 후보: [넘을 벽, 착지 칸] — 안쪽 벽(1)·바리케이드(2) 한 칸만, 바깥 벽·층 경계 불가, 착지는 같은 층의 빈 바닥(출구 제외, 거인·뷱 머리 없는 칸)
+  function vaultMoves(game) {
+    const m = game.map, R = game.runner, W = m.W, FH = m.FH || m.H, out = [];
+    const x = R.pos % W, y = (R.pos / W) | 0;
+    for (const [dx, dy] of DIRS) {
+      const wx = x + dx, wy = y + dy, tx = x + 2 * dx, ty = y + 2 * dy;
+      if (wx <= 0 || wx >= W - 1 || tx <= 0 || tx >= W - 1) continue;
+      const wyl = wy % FH, tyl = ty % FH;
+      if (wy < 0 || ty < 0 || ty >= m.H || wyl === 0 || wyl === FH - 1 || tyl === 0 || tyl === FH - 1) continue;
+      if (Math.floor(wy / FH) !== Math.floor(y / FH) || Math.floor(ty / FH) !== Math.floor(y / FH)) continue;
+      const w = wy * W + wx, t = ty * W + tx;
+      if (m.g[w] === 0 || m.isExit[w] || m.g[t] !== 0 || m.isExit[t] || m.stairOf[t] >= 0 || m.stairOf[R.pos] >= 0) continue; // 계단 위/계단으로는 못 넘음
+      if (game.giantAt(t) >= 0 || game.snakeAtHead(t)) continue;
+      out.push([w, t]);
+    }
+    return out;
+  }
+
   // ---------- 아이템 ----------
-  const R_ITEMS = ['smoke', 'boost', 'cloak', 'shotgun', 'barricade'];
+  // R_ITEMS: 도망자 가방 표시 순서(샷건은 기본 스킬), R_SPAWN: 맵에 떨어지는 도망자 아이템 (v16: 샷건 대신 벽넘기)
+  const R_ITEMS = ['shotgun', 'smoke', 'boost', 'cloak', 'vault', 'barricade'];
+  const R_SPAWN = ['smoke', 'boost', 'cloak', 'vault', 'barricade'];
   const G_ITEMS = ['roar', 'tracker', 'barricade'];
   const ITEM_INFO = {
     smoke: { name: '연막탄', obj: '연막탄을', icon: '💨' }, boost: { name: '부스터', obj: '부스터를', icon: '🚀' }, cloak: { name: '투명망토', obj: '투명망토를', icon: '👻' },
-    shotgun: { name: '샷건', obj: '샷건을', icon: '🔫' }, barricade: { name: '바리케이드', obj: '바리케이드를', icon: '🧱' },
+    shotgun: { name: '샷건', obj: '샷건을', icon: '🔫' }, vault: { name: '벽넘기', obj: '벽넘기 신발을', icon: '🤸' }, barricade: { name: '바리케이드', obj: '바리케이드를', icon: '🧱' },
     roar: { name: '포효 뿔피리', obj: '포효 뿔피리를', icon: '🔊' }, tracker: { name: '냄새 추적기', obj: '냄새 추적기를', icon: '🐾' },
   };
   function freshThreats(game) {
@@ -811,10 +847,17 @@
         if ((dx !== 0 && dy !== 0) || d > maxD || d < 1 || !lineOfSight(m, R.pos, G.pos)) continue;
         if (d < td) { td = d; tk = G.id; }
       }
+      if (tk >= 0 && game.rng() >= Math.max(0.1, CFG.SHOTGUN_HIT - (td - 1) * CFG.SHOTGUN_FALLOFF)) { // 빗나감(멀수록 잘 빗나감): 탄만 씀
+        inv.shotgun--; R.used++; game.fx.push({ t: 'shot', from: R.pos, to: game.giants[tk].pos, giant: tk, miss: true, turn: game.turn });
+        game.log('shot', `도망자가 샷건을 쐈지만 빗나갔다! 🔫💨 샷건 ${inv.shotgun}/${CFG.SHOTGUN_AMMO}`);
+        tk = -1;
+      }
       if (tk >= 0) {
         const G = game.giants[tk]; G.stun = secTurns(CFG.STUN_SEC); G.saw = false; G.dashLeft = 0; G.track = 0; inv.shotgun--; R.used++;
         game.fx.push({ t: 'shot', from: R.pos, to: G.pos, giant: tk, turn: game.turn });
-        game.log('shot', `도망자가 샷건을 쐈다! 🔫 거인${tk + 1} ${CFG.STUN_SEC}초 기절 · ${inv.shotgun ? `샷건 ${inv.shotgun}/${CFG.SHOTGUN_AMMO}` : '탄을 다 써서 샷건이 없어졌다'}`);
+        // v16: 총소리 — 근처(미로 거리 SHOT_NOISE 이내) 다른 거인들이 도망자 위치를 알아챔
+        if (CFG.SHOT_NOISE > 0) { const dn = bfsC(m, R.pos, 2), heard = []; for (const H of game.giants) if (H.id !== tk && H.stun <= 0 && H.out <= 0 && dn[H.pos] <= CFG.SHOT_NOISE) { H.know = R.pos; H.knowTurn = game.turn; heard.push(H.id + 1); } if (heard.length) game.log('call', `총소리를 들은 거인${heard.join('·')}이 몰려온다! 👂`); }
+        game.log('shot', `도망자가 샷건을 쐈다! 🔫 거인${tk + 1} ${CFG.STUN_SEC}초 기절 · 샷건 ${inv.shotgun}/${CFG.SHOTGUN_AMMO}${inv.shotgun < CFG.SHOTGUN_AMMO ? ` (장전 ${CFG.SHOTGUN_RELOAD_SEC}초)` : ''}`);
       }
     }
     const th = freshThreats(game); if (!th.length) return;
@@ -912,8 +955,7 @@
     let tgt = -1, best = Infinity, prey = null;
     const calm = game.turn < (S.ignoreUntil || 0); // 막혀서 못 가면 잠시 사냥을 포기하고 어슬렁
     if (!calm) for (const G of game.giants) { if (G.out > 0) continue; const d = dH[G.pos]; if (d <= CFG.SNAKE_SENSE && d - CFG.SNAKE_PREFER_GIANT < best) { best = d - CFG.SNAKE_PREFER_GIANT; tgt = G.pos; prey = 'g' + G.id; } }
-    if (!calm) { const d = dH[R.pos]; if (R.cloak <= 0 && d <= CFG.SNAKE_SENSE && d < best) { best = d; tgt = R.pos; prey = 'r'; } }
-    if (tgt >= 0) { if (S.prey !== prey) { if (prey === 'r') game.log('snake', '뷱이 도망자 냄새를 맡았다! 🐍 스르륵…'); } S.mode = prey === 'r' ? '도망자 사냥' : '거인 사냥'; }
+    if (tgt >= 0) S.mode = '거인 사냥'; // v16: 뷱은 거인만 사냥
     else if (!calm && game.pills.some((p) => dH[p] < 999)) {
       let bp = -1; for (const p of game.pills) if (dH[p] < 999 && (bp < 0 || dH[p] < dH[bp])) bp = p;
       tgt = bp; S.mode = '알약 찾기';
@@ -940,7 +982,6 @@
       if (S.body.length < CFG.SNAKE_MAX) { S.grow += CFG.SNAKE_GROW_PILL; game.log('snake', `뷱이 알약을 먹고 길어졌다! 💊 (길이 ${S.body.length + 1})`); } else game.log('snake', `뷱이 알약을 먹었다 💊 (이미 최대 길이 ${CFG.SNAKE_MAX})`);
       game.fx.push({ t: 'pill', cell: nx, snake: S.id, turn: game.turn });
     }
-    if (nx === R.pos) { game.snakeEatsRunner(S); return; }
     const gi = game.giantAt(nx); if (gi >= 0) game.eatGiant(S, gi);
   }
 
@@ -1058,7 +1099,7 @@
       const obj = runnerObjective(game, tp), dObj = bfsC(m, obj, game.hasAllKeys() ? 0 : 1);
       const L = Math.round(g.lookahead * 12);
       let p = tp;
-      for (let s = 0; s < L && p !== obj; s++) { let nb = p; for (const c of m.lockedNbrs[p]) if (dObj[c] < dObj[nb]) nb = c; p = nb; }
+      for (let s = 0; s < L && p !== obj; s++) { let nb = p; for (const c of (m.lockedNbrs[p] || [])) if (dObj[c] < dObj[nb]) nb = c; p = nb; }
       const dP = bfsC(m, p, 2);
       G.mode = g.intercept > 0.5 ? '길목 차단' : '추격'; G.goal = p;
       return pickMove(game, k, (c) => (1 - g.intercept) * dT[c] + g.intercept * dP[c]);
@@ -1220,9 +1261,11 @@
       if (!o || o.v !== 7 || !o.giant || !Array.isArray(o.giant.team) || o.giant.team.length < CFG.GIANTS || o.giant.team.length > CFG.GIANTS_MAX) return false;
       this.growWins = o.growWins || 0;
       Object.assign(this, { lastRate: o.lastRate ?? 0.5, generation: o.generation, rounds: o.rounds, runner: o.runner, giant: o.giant, history: o.history || [], trainWins: o.trainWins || { runner: 0, giant: 0, draw: 0 } });
+      // 예전 저장(새 유전자 없음): 빠진 유전자는 기본값으로 채움 (진화한 값은 그대로)
+      if (this.runner && this.runner.genes) this.runner.genes = Object.assign(defaultRunner(), this.runner.genes);
       return true;
     }
   }
 
-  return { CFG, floorOf, missionGoals, R_ITEMS, G_ITEMS, ITEM_INFO, visibleCell, updateSeen, cloneMap, finalizeGraphs, smashChoice, giantSkip, giantsForWins, secTurns, giantHear, mulberry32, generateMap, bfs, bfsC, Game, Trainer, RUNNER_GENES, GIANT_GENES, defaultRunner, defaultGiantTeam, roleOf, mutate, sees, giantSees, lineOfSight };
+  return { CFG, floorOf, missionGoals, R_ITEMS, R_SPAWN, vaultMoves, G_ITEMS, ITEM_INFO, visibleCell, updateSeen, cloneMap, finalizeGraphs, smashChoice, giantSkip, giantsForWins, secTurns, giantHear, mulberry32, generateMap, bfs, bfsC, Game, Trainer, RUNNER_GENES, GIANT_GENES, defaultRunner, defaultGiantTeam, roleOf, mutate, sees, giantSees, lineOfSight };
 });
