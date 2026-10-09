@@ -635,7 +635,11 @@
 
   fpvBuild();
   renderGenes();
+  // ?reset=<토큰>: 처음 보는 토큰이면 저장된 두뇌·점수를 지우고 새로 시작 (거인 4명·0세대·0:0:0). 같은 주소로 다시 열면(OBS 새로고침·4시간 자동 새로고침) 다시 지우지 않음
+  { const rt = new URLSearchParams(location.search).get('reset');
+    if (rt) { try { if (localStorage.getItem('giantEscape.lastReset') !== rt) { localStorage.removeItem(STORE); localStorage.setItem('giantEscape.lastReset', rt); app.didReset = rt; } } catch (e) { /* 저장소 사용 불가 시 무시 */ } } }
   if (!load(true)) newRound(true);
+  if (app.didReset) log(`🧹 초기화 완료 — 0세대부터 다시 시작합니다 (거인 ${trainer.giantCount}명)`, 'learn');
   updateGiantCount();
   // 테스트/스크린샷용: 도망자 승리를 n번 기록한 것처럼 (거인 추가 경로를 그대로 탐)
   // 미리보기: 주소에 ?giants=N (4~10)을 붙이면 그 인원으로 시작. 저장은 하지 않음 (진짜 기록은 그대로)
