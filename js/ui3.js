@@ -605,18 +605,15 @@
     const ul = $('h-log'), li = document.createElement('li'); if (cls) li.className = cls; li.textContent = text;
     ul.prepend(li); while (ul.children.length > 6) ul.lastChild.remove();
   }
-  // 방송 카메라 순환: 3인칭(약 25초) ↔ 1인칭(약 15초), 가까운 추격(거인 3칸 이내)이면 1인칭으로 바로 전환
-  const CAM_ORDER = ['tps', 'fpv'], CAM_OK = ['tps', 'fpv', 'orbit', 'follow'], CAM_MS = { tps: 25000, fpv: 15000 };
+  // 방송 카메라: 기본 3인칭 고정 (?cam= 으로 수동 지정 가능)
+  const CAM_OK = ['tps', 'fpv', 'orbit', 'follow'], CAM_MS = { tps: 25000, fpv: 15000 };
+  // 방송은 3인칭 고정: 시점 자동 전환 없음. 가까운 추격(거인 3칸 이내)은 중계 문구만 띄움
   function streamCamTick() {
     const R = window.Render3D; if (!R || !app.has3d || app.view !== '3d' || app.training) return;
     const now = performance.now(), g = app.game;
-    app.camNextAt = app.camNextAt || now + (CAM_MS[R.camMode] || CAM_SWITCH_MS);
-    if (g && !g.result && (app.nearD ?? 999) <= 3) {
-      if (R.camMode !== 'fpv' && now - (app.camAt || 0) > 4000) { setCam('fpv'); hudLog('🎥 추격전! 도망자 시점으로', 'spot'); }
-      app.camNextAt = Math.max(app.camNextAt, now + 6000); return;
-    }
-    if (app.camManual) return; // ?cam=orbit|follow 로 직접 고른 시점은 그대로 유지
-    if (now >= app.camNextAt) { setCam(CAM_ORDER[(CAM_ORDER.indexOf(R.camMode) + 1) % CAM_ORDER.length]); app.camNextAt = now + (CAM_MS[R.camMode] || CAM_SWITCH_MS); }
+    const chase = g && !g.result && (app.nearD ?? 999) <= 3;
+    if (chase && !app.chaseOn && now - (app.chaseLogAt || 0) > 8000) { hudLog('🎥 추격전! 거인이 바로 뒤에!', 'spot'); app.chaseLogAt = now; }
+    app.chaseOn = !!chase;
   }
   function streamOnSmash() { /* 벽이 부서지면 전체/따라가기 화면에서도 흔들림이 보이도록 그대로 둠 */ }
   function streamStart() {
