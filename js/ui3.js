@@ -617,7 +617,7 @@
   function streamOnSmash() { /* 벽이 부서지면 전체/따라가기 화면에서도 흔들림이 보이도록 그대로 둠 */ }
   function streamStart() {
     hudBuild(); hudUpdate();
-    $('autoNext').checked = true; $('speed').value = 10; $('speedVal').textContent = '10'; // 10턴/초 기준: 샷건 기절 3초 = 30턴, 거인 부활 5초 = 50턴
+    $('autoNext').checked = true; const SP = String(Math.max(1, Math.min(40, parseInt(new URLSearchParams(location.search).get('speed') || '3', 10) || 3))); $('speed').value = SP; $('speedVal').textContent = SP; // 방송 기본 3턴/초 (?speed=N 로 변경) // 10턴/초 기준: 샷건 기절 3초 = 30턴, 거인 부활 5초 = 50턴
     setPlaying(true);
     setInterval(streamCamTick, 1000);
     // ?cam=fpv|follow|orbit → 방송 시작 카메라 지정
