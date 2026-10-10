@@ -177,6 +177,7 @@
     [/🐍 거인(\d+) 부활/, '🐍 Giant $1 respawn'],
     [/🎥 추격전! 거인이 바로 뒤에!/, '🎥 CHASE! A giant is right behind!'],
     [/🔊 클릭하면 소리 켜짐/, '🔊 Click to enable sound'],
+    [/🔊 화면을 터치하면 소리 켜짐/, '🔊 Tap to enable sound'],
   ];
   // 단어·짧은 구절 (긴 것 먼저)
   const WORDS = [
