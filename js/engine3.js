@@ -30,13 +30,14 @@
     // 열쇠 미션: 열쇠는 잠긴 상자 안 → 미션을 끝내야 열림 (맵마다 3종 중 2종)
     LEVERS: 3, PLATE_TURNS: 4, PLATE_NOISE: 11,
     // 뷱(뱀): 전체 1마리(계단으로 두 층을 오감), 거인만 잡아먹음 (v16: 도망자는 뷱을 그냥 통과). 꼬리를 잡으면 잠시 땅속으로 숨음
-    SNAKES: 1, SNAKES_PER_FLOOR: 1, SNAKE_LEN: 4, SNAKE_MAX: 18, SNAKE_GROW_GIANT: 2, SNAKE_GROW_PILL: 1, SNAKE_SENSE: 1, SNAKE_SKIP: 4, SNAKE_PREFER_GIANT: 2,
+    SNAKES: 1, SNAKES_PER_FLOOR: 1, SNAKE_LEN: 4, SNAKE_MAX: 18, SNAKE_GROW_GIANT: 2, SNAKE_GROW_PILL: 1, SNAKE_SENSE: 1, SNAKE_SKIP: 3, SNAKE_PREFER_GIANT: 2,
     SNAKE_DIGEST_SEC: 5,     // 뷱에게 먹힌 거인은 5초(50턴) 뒤 출발점에서 부활
-    SNAKE_HIDE: 40, SNAKE_REST: 6,   // v19: 소화 휴식 12→6턴, 3턴 중 1턴 쉬던 것을 4턴 중 1턴으로 (사냥꾼 뷱)
+    SNAKE_HIDE: 40, SNAKE_REST: 20,  // v20: 뷱 승리는 아주 드물게 — 먹은 뒤 20턴 소화, 3턴 중 1턴은 쉼
     // v19: 뷱도 학습하는 세 번째 편. 한 판에 거인을 SNAKE_WIN_EATS마리 먹으면 뷱 승리 (도망자·거인 모두 패배)
-    SNAKE_WIN_EATS: 30,
-    SNAKE_SENSE_MAX: 9,      // '사냥 감각' 유전자 1.0일 때 거인을 알아채는 미로 거리 (기본 1 + 9)
-    SNAKE_LUNGE_CD: 16, SNAKE_LUNGE_MAX: 3,  // 달려들기: 가까운 거인에게 한 턴에 2칸, 쿨다운 16턴
+    SNAKE_WIN_EATS: 12,      // v20: 30→12 (한 판 기준). 대신 뷱을 약하게 해 뷱 승리는 1~3% 정도로 드묾
+    SNAKE_SENSE_MAX: 6,      // '사냥 감각' 유전자 1.0일 때 거인을 알아채는 미로 거리 (기본 1 + 6)
+    SNAKE_REST_PER_EAT: 6,  // v20: 배가 부를수록 소화가 느림 — 먹은 거인 1마리마다 소화 휴식 +6턴 (막판 몰아 먹기 방지)
+    SNAKE_LUNGE_CD: 30, SNAKE_LUNGE_MAX: 3,  // 달려들기: 가까운 거인에게 한 턴에 2칸, 쿨다운 30턴
     SNAKE_SPAWN_SAFE: 4,     // 뷱 머리가 출발점에서 이 거리 안이면 거인은 다른 출발점에서 부활 (출발점 무한 사냥 방지)
     SNAKE_STUN_SEC: 3,       // 도망자 샷건에 맞은 뷱은 3초 기절 (못 움직이고 못 먹음)
     // 알약: 뷱만 먹음, 먹을 때마다 한 칸 길어짐 (최대 SNAKE_MAX)
@@ -486,12 +487,12 @@
     eatGiant(S, k) {
       const G = this.giants[k]; G.out = secTurns(CFG.SNAKE_DIGEST_SEC); G.stun = 0; G.blind = 0; G.track = 0; G.dashLeft = 0; G.know = -1; G.saw = false; G.ambushSpot = -1; releaseDoor(this, k);
       G.eatenAt = G.pos; G.path = [G.pos];
-      S.grow += CFG.SNAKE_GROW_GIANT; S.rest = CFG.SNAKE_REST; this.snakeAte.giants++; this.snakeAte.byGiant[k]++;
+      S.grow += CFG.SNAKE_GROW_GIANT; S.rest = CFG.SNAKE_REST + CFG.SNAKE_REST_PER_EAT * this.snakeAte.giants; this.snakeAte.giants++; this.snakeAte.byGiant[k]++;
       this.fx.push({ t: 'eat', cell: S.body[0], giant: k, snake: S.id, turn: this.turn });
       this.log('snake', `뷱이 거인${k + 1}을 삼켰다! 🐍 (${CFG.SNAKE_DIGEST_SEC}초 뒤 출발점에서 부활)`);
       const W = CFG.SNAKE_WIN_EATS, e = this.snakeAte.giants;
       if (e >= W) return this.finish('snake');
-      if (e === Math.round(W / 2) || e === W - 5 || e === W - 1) this.log('snakeWarn', `🐍 뷱이 거인 ${e}/${W}마리째! ${W - e}마리만 더 먹으면 뷱 승리`);
+      if (e === Math.round(W / 2) || e === W - 2 || e === W - 1) this.log('snakeWarn', `🐍 뷱이 거인 ${e}/${W}마리째! ${W - e}마리만 더 먹으면 뷱 승리`);
     }
 
     step() {
@@ -1335,7 +1336,7 @@
           const prog = (map.keys.length - game.keysLeft.length + 0.5 * game.ms.filter((x) => x.done).length) / (map.keys.length * 1.5 + 1);
           if (res === 'runner') { rw++; rScore[a] += 1; }
           else if (res === 'giant') { gw++; rScore[a] += 0.15 * prog; if (game.catcher >= 0 && b === 0) { const c = this.giant.catches || (this.giant.catches = []); c[game.catcher] = (c[game.catcher] || 0) + 1; } gScore[b] += 1 - 0.3 * game.turn / CFG.MAX_TURNS; }
-          else if (res === 'snake') { sw++; rScore[a] += 0.05 * prog; gScore[b] += 0.1; }
+          else if (res === 'snake') { sw++; rScore[a] += 0.05 * prog; gScore[b] += 0; } // 뷱 승리는 도망자·거인 모두에게 패배
           else { dw++; rScore[a] += 0.1 * prog; gScore[b] += 0.4; }
         }
       }

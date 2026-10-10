@@ -637,7 +637,7 @@
       <div class="hud-info" id="h-info"></div>
       <div class="hud-status" id="h-status"></div>
       <div class="hud-ammo" id="h-ammo"><div class="am-top"><span class="am-ic">🔫</span><span class="am-name">샷건</span><b id="h-ammoN">2/2</b><span class="am-shells" id="h-shells"></span></div><div class="am-bar"><i id="h-reload"></i></div><div class="am-sub" id="h-ammoSub">장전 완료</div></div>
-      <div class="hud-snake" id="h-snake"><div class="sn-top"><span class="sn-ic">🐍</span><span class="sn-name">뷱</span><b id="h-snakeN">0/30</b></div><div class="sn-bar"><i id="h-snakeBar"></i></div><div class="sn-sub" id="h-snakeSub">거인을 먹으면 뷱 승리</div></div>
+      <div class="hud-snake" id="h-snake"><div class="sn-top"><span class="sn-ic">🐍</span><span class="sn-name">뷱</span><b id="h-snakeN">0/12</b></div><div class="sn-bar"><i id="h-snakeBar"></i></div><div class="sn-sub" id="h-snakeSub">거인을 먹으면 뷱 승리</div></div>
       <ul class="hud-log" id="h-log"></ul>`;
     stageEl.appendChild(hud);
   }
