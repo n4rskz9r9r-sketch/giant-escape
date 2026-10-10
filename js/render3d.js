@@ -257,7 +257,7 @@ R3.setMap = function (m) {
   map = m; W = m.W; H = m.H; FH = m.FH || m.H;
   const LVS = m.levels || Array.from({ length: m.floors || 1 }, (_, f) => ({ row0: f * FH, h: FH, zOff: 0, lz: f }));
   NF = LVS.length; B1 = m.B1 != null ? m.B1 : -1;
-  dinoObj = null; weaponObj = null; torchPts = null; torchList = [];
+  dinoObj = null; weaponObj = null; torchPts = null; torchList = []; boulderObjs = [];
   mapGroup = new THREE.Group(); scene.add(mapGroup);
   const tileGeo = new THREE.PlaneGeometry(0.96, 0.96); tileGeo.rotateX(-Math.PI / 2);
   const wallGeo = new THREE.BoxGeometry(1, 0.95, 1); wallGeo.translate(0, 0.475, 0);
@@ -268,7 +268,7 @@ R3.setMap = function (m) {
   const cA3 = new THREE.Color(0x2e2620), cB3 = new THREE.Color(0x352b23), cw5 = new THREE.Color(0x6e5a48), cw6 = new THREE.Color(0x5c4a3b);
   for (let f = 0; f < NF; f++) {
     const L = LVS[f], ug = f === B1, y0 = L.lz * FLOOR_Y, cells = [], wl = [];
-    for (let i = L.row0 * W; i < (L.row0 + L.h) * W; i++) { if (m.g[i] === 0) cells.push(i); else wl.push(i); }
+    for (let i = L.row0 * W; i < (L.row0 + L.h) * W; i++) { if (m.g[i] !== 1) cells.push(i); else wl.push(i); } // v22: 바위 칸(g=3)은 바닥
     // 바닥판 (2층은 살짝 다른 색, 지하는 어두운 흙색)
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(W + (f ? 1 : 6), L.h + (f ? 1 : 6)), new THREE.MeshStandardMaterial({ color: ug ? 0x0e0a08 : f ? 0x1d2a3a : 0x1b2040, roughness: 0.95 }));
     plane.rotation.x = -Math.PI / 2; plane.position.y = y0 - (f ? 0.02 : 0); plane.receiveShadow = true; mapGroup.add(plane); floorPlanes.push(plane);
@@ -321,6 +321,7 @@ R3.setMap = function (m) {
     const bot = makeHatch(true); setAt(bot, b2, 0); bot.userData.cells = [b2]; mapGroup.add(bot); stairObjs.push(bot);
   }
   if (B1 >= 0) buildUnderground(m, LVS[B1]);
+  for (const b of (m.boulders || [])) { const o = makeBoulder(b.home); setAt(o, b.home, 0); o.userData.cell = b.home; mapGroup.add(o); boulderObjs.push(o); } // v22 바위
   // 열쇠 + 잠긴 상자
   keyObjs = new Map();
   for (const kk of m.keys) {
@@ -370,8 +371,8 @@ function makeHatch(under) {
 function buildUnderground(m, L) {
   const cand = [];
   for (let yy = 1; yy < L.h - 1; yy++) for (let x = 1; x < W - 1; x++) {
-    const i = (L.row0 + yy) * W + x; if (m.g[i] === 0) continue;
-    let dir = null; for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { const j = i + dx + dy * W; if (m.g[j] === 0 && m.lvl[j] === B1) { dir = [dx, dy]; break; } }
+    const i = (L.row0 + yy) * W + x; if (m.g[i] !== 1) continue;
+    let dir = null; for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { const j = i + dx + dy * W; if (m.g[j] !== 1 && m.lvl[j] === B1) { dir = [dx, dy]; break; } }
     if (dir) cand.push([i, dir]);
   }
   let seed = 1234567; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -420,6 +421,38 @@ function makeDino() {
   return g;
 }
 // 거인 퇴치 번개창: 금빛 삼지창 + 빛 + 빛기둥
+// v22 바위: 울퉁불퉁한 큰 돌 (칸 하나를 꽉 채움) + 막고 있으면 빨간 경고 고리
+let boulderObjs = [];
+function makeBoulder(seed) {
+  const g = new THREE.Group(), geo = new THREE.IcosahedronGeometry(0.62, 1), p = geo.attributes.position; let s = (seed * 9301 + 49297) % 233280;
+  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }, seen = new Map();
+  for (let i = 0; i < p.count; i++) { const key = `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`; let k = seen.get(key); if (k == null) { k = 0.82 + rnd() * 0.3; seen.set(key, k); } p.setXYZ(i, p.getX(i) * k, p.getY(i) * k * 0.88, p.getZ(i) * k); }
+  geo.computeVertexNormals();
+  const rock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x6e665c, roughness: 0.95, metalness: 0.02, flatShading: true, emissive: 0x15120e, emissiveIntensity: 1 }));
+  rock.castShadow = true; rock.receiveShadow = true;
+  const roll = new THREE.Group(); roll.position.y = 0.56; roll.add(rock); g.add(roll);
+  const moss = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), new THREE.MeshStandardMaterial({ color: 0x3e5530, roughness: 1, flatShading: true })); moss.scale.set(1.3, 0.3, 1); moss.position.set(0.14, 0.47, 0.12); rock.add(moss);
+  const warn = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.76, 32), new THREE.MeshBasicMaterial({ color: 0xff4040, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, fog: false }));
+  warn.rotation.x = -Math.PI / 2; warn.position.y = 0.05; warn.visible = false; g.add(warn);
+  g.userData = { roll, warn };
+  return g;
+}
+const _bv = new THREE.Vector3();
+function updateBoulders(s, now, dt) {
+  const bs = s.boulders || [];
+  boulderObjs.forEach((o, i) => {
+    const b = bs[i]; if (!b) { o.visible = false; return; }
+    o.visible = onF(b.cell);
+    _bv.set(wx(b.cell % W), fy(b.cell), wzc(b.cell));
+    const dx = _bv.x - o.position.x, dz = _bv.z - o.position.z, dist = Math.hypot(dx, dz);
+    if (dist > 2.5 || Math.abs(_bv.y - o.position.y) > 0.5) o.position.copy(_bv); // 제자리로 굴러감·층 이동: 바로
+    else if (dist > 0.001) {
+      const st = Math.min(dist, dt * 3.2); o.position.x += dx / dist * st; o.position.z += dz / dist * st;
+      const r = o.userData.roll; r.rotation.z -= (dx / dist) * st / 0.56; r.rotation.x += (dz / dist) * st / 0.56; // 굴러가는 모습
+    }
+    const w = o.userData.warn; w.visible = !!b.blocked; if (w.visible) w.material.opacity = 0.55 + 0.35 * Math.sin(now * 5);
+  });
+}
 function makeWeapon() {
   const g = new THREE.Group(), gold = new THREE.MeshStandardMaterial({ color: 0xffd24a, metalness: 0.8, roughness: 0.25, emissive: 0x8a5a00, emissiveIntensity: 1.2 });
   const inner = new THREE.Group(); inner.position.y = 0.75; g.add(inner);
@@ -580,8 +613,10 @@ R3.fx = function (list, opt) {
       const hit = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.miss ? '💨' : '💥'), transparent: true, depthWrite: false })); hit.position.set(tx, cyF + 1.6, tz); hit.scale.set(1.1, 1.1, 1);
       addFx(hit, 0.6, (t) => { hit.material.opacity = 1 - t / 0.6; const k = 1.1 + t; hit.scale.set(k, k, 1); });
       R3.muzzleT = nowS; shakeAmt = Math.max(shakeAmt, R3.camMode === 'fpv' ? 0.12 : 0.15);
-    } else if (['roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn', 'snakeStun', 'lunge', 'dinoBite', 'dinoRoar', 'weapon', 'slay', 'hatch'].includes(e.t)) {
+    } else if (['roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn', 'snakeStun', 'lunge', 'dinoBite', 'dinoRoar', 'weapon', 'slay', 'hatch', 'boulder', 'boulderBlock', 'boulderReset'].includes(e.t)) {
       if (e.t === 'dinoRoar') { R3.dinoRoarT = nowS; shakeAmt = Math.max(shakeAmt, 0.3); }
+      if (e.t === 'boulderBlock') { shakeAmt = Math.max(shakeAmt, 0.25); const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🪨'), transparent: true, depthWrite: false })); ic.position.set(cx, cyF + 1.6, cz); addFx(ic, 2.0, (t) => { const k = 0.8 + Math.min(t, 0.4) * 2.5; ic.scale.set(k, k, 1); ic.material.opacity = t < 1.3 ? 1 : Math.max(0, 1 - (t - 1.3) / 0.7); }); }
+      if (e.t === 'boulder') shakeAmt = Math.max(shakeAmt, 0.05);
       if (e.t === 'dinoBite' || e.t === 'weapon' || e.t === 'slay') {
         shakeAmt = Math.max(shakeAmt, e.t === 'weapon' ? 0.1 : 0.35); if (e.t === 'dinoBite') R3.dinoRoarT = nowS;
         const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.t === 'dinoBite' ? '🦖' : e.t === 'weapon' ? '🔱' : '☠️'), transparent: true, depthWrite: false })); ic.position.set(cx, cyF + 1.6, cz);
@@ -593,8 +628,8 @@ R3.fx = function (list, opt) {
         bolt.position.set((cx + fx0) / 2, cyF + 0.9, (cz + fz0) / 2); bolt.rotation.y = Math.atan2(dx, dz);
         addFx(bolt, 0.5, (t) => { bolt.material.opacity = (1 - t / 0.5) * (0.6 + 0.4 * Math.sin(t * 80)); bolt.scale.set(1 + Math.sin(t * 60) * 0.5, 1, 1); });
       }
-      const col = { roar: 0xff3b3b, tracker: 0x59e39a, pickup: 0xffe14a, cloak: 0x9fd0ff, boost: 0xff9a2a, spawn: 0xffffff, lever: 0x7dff7d, gem: 0x40e0ff, pedestal: 0x40e0ff, chest: 0xffd54a, plate: 0xffd54a, pill: 0xff5fd2, pillSpawn: 0xff9fe8, eat: 0x3fe060, tailgrab: 0xc89a5a, snakeUp: 0x8a6a40, respawn: 0xffffff, snakeStun: 0xffe14a, lunge: 0x7dff9a, dinoBite: 0xff4020, dinoRoar: 0xc8ff6a, weapon: 0x7fd8ff, slay: 0x9fe8ff, hatch: 0xc89a5a }[e.t];
-      const big = { roar: 9, tracker: 3, chest: 5, eat: 4, tailgrab: 3, plate: 1, dinoRoar: 10, dinoBite: 4, weapon: 6, slay: 3 }[e.t] || 1.6, dur = ['roar', 'chest', 'eat', 'dinoRoar', 'dinoBite', 'weapon'].includes(e.t) ? 1.4 : 0.8;
+      const col = { roar: 0xff3b3b, tracker: 0x59e39a, pickup: 0xffe14a, cloak: 0x9fd0ff, boost: 0xff9a2a, spawn: 0xffffff, lever: 0x7dff7d, gem: 0x40e0ff, pedestal: 0x40e0ff, chest: 0xffd54a, plate: 0xffd54a, pill: 0xff5fd2, pillSpawn: 0xff9fe8, eat: 0x3fe060, tailgrab: 0xc89a5a, snakeUp: 0x8a6a40, respawn: 0xffffff, snakeStun: 0xffe14a, lunge: 0x7dff9a, dinoBite: 0xff4020, dinoRoar: 0xc8ff6a, weapon: 0x7fd8ff, slay: 0x9fe8ff, hatch: 0xc89a5a, boulder: 0xb0a898, boulderBlock: 0xff5040, boulderReset: 0xb0a898 }[e.t];
+      const big = { boulderBlock: 4, roar: 9, tracker: 3, chest: 5, eat: 4, tailgrab: 3, plate: 1, dinoRoar: 10, dinoBite: 4, weapon: 6, slay: 3 }[e.t] || 1.6, dur = ['roar', 'chest', 'eat', 'dinoRoar', 'dinoBite', 'weapon'].includes(e.t) ? 1.4 : 0.8;
       if (e.t === 'eat') { shakeAmt = Math.max(shakeAmt, 0.3); const bite = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🐍'), transparent: true, depthWrite: false })); bite.position.set(cx, cyF + 1.4, cz); addFx(bite, 2.2, (t) => { const k = 0.9 + Math.min(t, 0.5) * 2.4 + Math.sin(t * 9) * 0.05; bite.scale.set(k, k, 1); bite.material.opacity = t < 1.4 ? 1 : Math.max(0, 1 - (t - 1.4) / 0.8); }); }
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.55, 40), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, fog: false }));
       ring.rotation.x = -Math.PI / 2; ring.position.set(cx, cyF + 0.08, cz);
@@ -863,6 +898,7 @@ R3.render = function (s) {
   for (const o of stairObjs) { o.visible = o.userData.cells.some((c) => onF(c)) && (o.userData.steps ? cellF(o.userData.cells[0]) === focusF : true); if (o.userData.label) o.userData.label.position.y = 1.3 + Math.sin(now * 3) * 0.1; }
   // v21 공룡 · 무기 · 횃불
   updateUnderground(s, now);
+  updateBoulders(s, now, dtR);
   // 알약
   const ps = s.pills || [], pset = new Set(ps);
   for (const c of ps) { let o = pillObjs.get(c); if (!o) { o = makePill(); setAt(o, c, 0); mapGroup.add(o); pillObjs.set(c, o); } o.visible = onF(c); o.userData.cap.rotation.y = now * 2 + c; o.userData.cap.position.y = 0.32 + Math.sin(now * 4 + c) * 0.05; }

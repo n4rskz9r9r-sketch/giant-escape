@@ -67,6 +67,11 @@
     B1_STAY_MIN: 40, B1_STAY_GENE: 50,   // 도망자가 한 판에 지하에 머무는 시간(턴) = MIN + '지하 탐험' × GENE
     WEAPON_FAR: 0.8,         // 무기는 해치에서 가장 먼 곳의 80% 이상 거리 어딘가 (판마다 무작위)
     WEAPON_SEE: 3,           // 어두운 지하라 무기는 3칸 안(시야 안)까지 다가가야 눈에 띔 — 한 번 보면 기억
+    // v22 바위: 거인만 밀 수 있음(한 번에 1칸, 소코반). 지하 2개 + 지상 1층 문 근처 1개. 해치·문 앞을 막아 탈출을 방해
+    BOULDERS_B1: 2, BOULDER_SURF: 1, HATCH_NOISE: 12,  // 도망자가 해치로 내려가면 12칸 안의 거인이 소리를 들음
+    BOULDER_RESET_SEC: 12,   // 해치·계단을 막은 바위는 12초 뒤 제자리로 굴러감. 문 앞 바위는 그 판 내내 그대로 (다른 문은 언제나 열려 있음)
+    BOULDER_MAX_PUSH: 22,    // 한 번 계획에 최대 22번 밀기
+    BOULDER_PLAN_EVERY: 4, BOULDER_PLAN_TURNS: 140, BOULDER_CD: 40,
   };
 
   function mulberry32(a) {
@@ -267,7 +272,78 @@
     }
     map.surfFloor = map.floor.slice(); map.b1Floor = [];
     if (BH) buildB1(map, seed, used);
+    placeBoulders(map, seed, used);
     return map;
+  }
+  // ---------- v22 바위 ----------
+  // 소코반 길찾기: 바위를 s에서 t까지 미는 바위 칸 순서 (미는 거인은 반대편 칸에 서야 하고, 방향을 바꾸려면 바위를 돌아 그 자리까지 걸어갈 수 있어야 함)
+  // dG: 거인 위치에서의 거리(첫 밀기 자리까지 갈 수 있는지), null이면 검사 안 함
+  function boulderPlan(m, s, t, okCell, maxP, dG) {
+    const W = m.W, N = W * m.H, lv = floorOf(m, s), D4 = [1, -1, W, -W];
+    const same = (c) => c >= 0 && c < N && floorOf(m, c) === lv;
+    const walk = (c) => c === s || (same(c) && m.g[c] === 0 && !m.isExit[c]);
+    const put = (c) => c === s || (same(c) && m.g[c] === 0 && !m.isExit[c] && okCell(c) && (c === t || (m.stairOf[c] < 0 && !(m.doorFront && m.doorFront.includes(c))))); // 해치·계단·문 앞은 목표일 때만
+    const reach = (a, b, block) => {
+      if (a === b) return true; const seen = new Map([[a, 0]]), q = [a];
+      for (let h = 0; h < q.length; h++) { const c = q[h], dc = seen.get(c); if (dc >= 14) continue; for (const d of D4) { const n = c + d; if (n === block || seen.has(n) || !walk(n)) continue; if (n === b) return true; seen.set(n, dc + 1); q.push(n); } }
+      return false;
+    };
+    const start = s * 5 + 4, prev = new Map([[start, -1]]), dist = new Map([[start, 0]]), q = [start];
+    for (let h = 0; h < q.length; h++) {
+      const st = q[h], c = (st / 5) | 0, pd = st % 5, dc = dist.get(st);
+      if (c === t) { const out = []; for (let x = st; x >= 0; x = prev.get(x)) out.push((x / 5) | 0); return out.reverse(); }
+      if (dc >= maxP) continue;
+      for (let di = 0; di < 4; di++) {
+        const d = D4[di], n = c + d, from = c - d;
+        if (!put(n) || !walk(from)) continue;
+        if (pd === 4) { if (dG && !(dG[from] < 999)) continue; }
+        else if (di !== pd && !reach(c - D4[pd], from, c)) continue;
+        const ns = n * 5 + di; if (prev.has(ns)) continue;
+        prev.set(ns, st); dist.set(ns, dc + 1); q.push(ns);
+      }
+    }
+    return null;
+  }
+  // 맵 생성 때 바위 자리: 지상 1층 문 근처 1개(문 앞까지 밀 수 있는 곳) + 지하 2개(해치까지 밀 수 있는 곳)
+  function placeBoulders(map, seed, used) {
+    const rng = mulberry32((seed ^ 0xB0D1E5) >>> 0), W = map.W, g = map.g;
+    map.boulders = []; map.doorFront = map.exits.map((e) => (map.nbrs[e] || []).find((n) => !map.isExit[n]) ?? -1);
+    const avoid = new Set([map.runnerStart, ...map.giantStarts, ...map.keys, ...(map.snakeStarts || []), ...used]);
+    const okCell = (c) => !map.isMission[c] && !avoid.has(c);
+    const okHome = (c) => g[c] === 0 && !map.isExit[c] && !map.isMission[c] && map.stairOf[c] < 0 && !avoid.has(c) && !map.nearDoor[c] && !map.boulders.some((b) => manhattan(map, b.home, c) < 8);
+    const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+    const tryPlace = (cand, targets, n) => {
+      let tries = 0;
+      for (const c of shuffle(cand)) {
+        if (map.boulders.length >= n || ++tries > 80) break;
+        if (!okHome(c)) continue;
+        if (targets.some((t) => boulderPlan(map, c, t, okCell, CFG.BOULDER_MAX_PUSH, null))) { map.boulders.push({ home: c }); }
+      }
+    };
+    if (CFG.BOULDER_SURF > 0) {
+      const dfs = map.doorFront.filter((c) => c >= 0);
+      tryPlace(map.surfFloor.filter((c) => floorOf(map, c) === 0 && dfs.some((df) => { const d = manhattan(map, c, df); return d >= 3 && d <= 11; })), dfs, CFG.BOULDER_SURF);
+    }
+    if (map.B1 >= 0 && map.hatches.length && CFG.BOULDERS_B1 > 0) {
+      const hb = map.hatches.map(([, b]) => b), n0 = map.boulders.length;
+      tryPlace(map.b1Floor.filter((c) => { const d = Math.min(...hb.map((b) => manhattan(map, c, b))); return d >= 5 && d <= 13; }), hb, n0 + CFG.BOULDERS_B1);
+    }
+    if (!map.boulders.length) return;
+    for (const b of map.boulders) g[b.home] = 3;
+    finalizeGraphs(map);
+    const bs = new Set(map.boulders.map((b) => b.home));
+    map.itemSpots = map.itemSpots.filter((c) => !bs.has(c));
+    if (map.weaponCands) map.weaponCands = map.weaponCands.filter((c) => !bs.has(c));
+  }
+  // 바위를 from→to로 옮긴 뒤에도 도망자가 출구(둘 중 하나)·남은 열쇠·미션 장소에 갈 길이 있나 (거인은 무시) — 길을 완전히 막는 밀기는 금지
+  function escapeOk(game, from, to) {
+    const m = game.map, W = m.W, N = W * m.H, pass = (c) => c !== to && (c === from || m.g[c] === 0);
+    const seen = new Uint8Array(N), q = [game.runner.pos]; seen[game.runner.pos] = 1;
+    for (let h = 0; h < q.length; h++) { const c = q[h]; for (const n of [c + 1, c - 1, c + W, c - W, m.stairOf[c]]) if (n >= 0 && n < N && !seen[n] && pass(n)) { seen[n] = 1; q.push(n); } }
+    if (!m.exits.some((e) => seen[e])) return false;
+    if (!game.keysLeft.every((kk) => seen[kk])) return false;
+    for (let mi = 0; mi < m.missions.length; mi++) if (!missionGoals(game, mi, true).every((c) => seen[c])) return false;
+    return true;
   }
   // v21: 지하 1층 — 넓은 미로 + 공룡용 2칸 너비 큰 복도 + 지상 1층과 이어지는 해치 + 무기 후보 + 공룡 길 그래프
   function buildB1(map, seed, used) {
@@ -409,6 +485,8 @@
     { key: 'snakeSense', label: '뷱 피하기', up: '거인이 뷱 냄새를 맡고 멀리 돌아간다', down: '거인이 뷱을 신경 쓰지 않는다' },
     { key: 'deepPatrol', label: '지하 수색', up: '거인이 지하 미로까지 내려가 순찰한다', down: '거인이 지상에서만 순찰한다' },
     { key: 'dinoDodge', label: '공룡 피하기', up: '거인이 공룡을 보면 멀리 돌아간다', down: '거인이 공룡을 무서워하지 않는다' },
+    { key: 'rockUse', label: '바위로 해치 막기', up: '거인이 멀리 있는 바위도 굴려 와 지하 해치를 막는다', down: '거인이 가까운 바위만 겨우 민다' },
+    { key: 'rockDoor', label: '바위로 문 막기', up: '거인이 열쇠를 다 모으기 전부터 바위로 출구 문을 막는다', down: '거인이 마지막 순간에만 문을 막는다' },
   ];
   // v19: 뷱 유전자 (뷱도 판마다 변이된 도전자와 겨루며 진화)
   const SNAKE_GENES = [
@@ -425,7 +503,7 @@
   // Lv.1 초보 두뇌 (일부러 서툰 값). 거인은 처음부터 역할이 조금씩 다르게 출발
   function defaultRunner() { return { danger: 0.5, flee: 0.35, greed: 0.7, loop: 0.3, predict: 0.5, memory: 0.4, keySafe: 0.35, sprint: 0.3, itemGreed: 0.4, panic: 0.4, shotgun: 0.4, barricade: 0.4, missionOrder: 0.4, plateNerve: 0.4, snakeFear: 0.5, snakeLure: 0.3, tailGrab: 0.3, vault: 0.4, snakeStop: 0.4, snakeShot: 0.3, delve: 0.6, weaponSeek: 0.6, dinoFear: 0.6 }; }
   function defaultGiantOne(k) {
-    const base = { stride: 0.5, intercept: 0.5, lookahead: 0.5, ambush: 0.3, dash: 0.1, patience: 0.3, scent: 0.2, exitGuard: 0.3, spread: 0.1, call: 0.2, smash: 0.3, roar: 0.4, tracker: 0.4, blockade: 0.3, guard: 0.3, snakeSense: 0.4, deepPatrol: 0.2, dinoDodge: 0.5 };
+    const base = { stride: 0.5, intercept: 0.5, lookahead: 0.5, ambush: 0.3, dash: 0.1, patience: 0.3, scent: 0.2, exitGuard: 0.3, spread: 0.1, call: 0.2, smash: 0.3, roar: 0.4, tracker: 0.4, blockade: 0.3, guard: 0.3, snakeSense: 0.4, deepPatrol: 0.2, dinoDodge: 0.5, rockUse: 0.4, rockDoor: 0.4 };
     if (k === 0) Object.assign(base, { intercept: 0.15, scent: 0.4 });           // 추격조
     if (k === 1) Object.assign(base, { intercept: 0.85, lookahead: 0.8 });       // 차단조
     if (k === 2) Object.assign(base, { ambush: 0.8, exitGuard: 0.6 });           // 매복조
@@ -475,12 +553,15 @@
       // v21: 지하 — 전설의 무기(판마다 먼 곳 무작위) + 2×2 공룡
       this.weapon = null; this.dino = null; this.kills = 0; this.dinoAte = { giants: 0, runner: 0 };
       if (map.B1 >= 0 && map.weaponCands && map.weaponCands.length) this.weapon = { cell: map.weaponCands[Math.floor(this.rng() * map.weaponCands.length)], taken: false, takenTurn: -1 };
-      if (map.B1 >= 0 && map.dinoStarts && map.dinoStarts.length) { const p = map.dinoStarts[Math.floor(this.rng() * map.dinoStarts.length)]; this.dino = { pos: p, prev: p, path: [p], facing: [1, 0], mode: '어슬렁', prey: null, last: -1, lastTurn: -999, roam: -1, stall: 0, ignoreUntil: 0 }; }
+      // v22 바위 (맵에 g=3으로 제자리에 놓여 있음)
+      this.boulders = (map.boulders || []).map((b) => ({ cell: b.home, home: b.home, by: -1, since: -1, pushes: 0 }));
+      this.rockStats = { pushes: 0, hatch: 0, door: 0, stairs: 0, resets: 0, refused: 0 };
+      if (map.B1 >= 0 && map.dinoStarts && map.dinoStarts.length) { const W = map.W, ds = map.dinoStarts.filter((p) => map.g[p] === 0 && map.g[p + 1] === 0 && map.g[p + W] === 0 && map.g[p + W + 1] === 0), pool = ds.length ? ds : map.dinoStarts, p = pool[Math.floor(this.rng() * pool.length)]; this.dino = { pos: p, prev: p, path: [p], facing: [1, 0], mode: '어슬렁', prey: null, last: -1, lastTurn: -999, roam: -1, stall: 0, ignoreUntil: 0 }; }
     }
     // v21: 공룡이 차지한 4칸
     dinoCells() { const D = this.dino; if (!D) return []; const W = this.map.W, p = D.pos; return [p, p + 1, p + W, p + W + 1]; }
     dinoHits(c) { const D = this.dino; if (!D) return false; const W = this.map.W, p = D.pos; return c === p || c === p + 1 || c === p + W || c === p + W + 1; }
-    knockOut(k) { const G = this.giants[k]; G.stun = 0; G.blind = 0; G.track = 0; G.dashLeft = 0; G.know = -1; G.saw = false; G.ambushSpot = -1; releaseDoor(this, k); G.eatenAt = G.pos; G.path = [G.pos]; }
+    knockOut(k) { const G = this.giants[k]; G.stun = 0; G.blind = 0; G.track = 0; G.dashLeft = 0; G.know = -1; G.saw = false; G.ambushSpot = -1; releaseDoor(this, k); G.eatenAt = G.pos; G.path = [G.pos]; dropRock(this, k); }
     dinoBite(k) {
       const G = this.giants[k]; this.knockOut(k); G.out = secTurns(CFG.DINO_KO_SEC); G.outBy = 'dino'; this.dinoAte.giants++;
       this.fx.push({ t: 'dinoBite', cell: G.pos, giant: k, turn: this.turn });
@@ -539,6 +620,44 @@
       this.log('barricade', `거인${k + 1}이 ${b.by === 'runner' ? '도망자의 ' : ''}바리케이드를 ${how === 'smash' ? '힘껏 ' : ''}부쉈다! 💥`);
     }
     isBarricade(cell) { return this.map.g[cell] === 2; }
+    // v22: 바위가 막고 있는 곳 이름 [이름, 을/를, 이/가, 종류]
+    blockInfo(c) {
+      const m = this.map, di = m.doorFront ? m.doorFront.indexOf(c) : -1;
+      if (di >= 0) return [`문 ${m.exitNames[di]}`, '를', '가', 'door'];
+      if (m.stairOf[c] >= 0) { const hi = (m.hatches || []).findIndex(([a, b]) => a === c || b === c); return hi >= 0 ? [`해치 ${hi + 1}번`, '을', '이', 'hatch'] : ['계단', '을', '이', 'stairs']; }
+      return null;
+    }
+    boulderFree(c) {
+      const m = this.map; if (m.g[c] !== 0 || m.isExit[c] || m.isMission[c]) return false;
+      if (c === this.runner.pos || this.giantAt(c) >= 0 || (this.dino && this.dinoHits(c))) return false;
+      if (this.snakes.some((S) => S.hidden <= 0 && S.body.includes(c))) return false;
+      if (this.items.some((it) => it.cell === c) || this.pills.includes(c) || this.keysLeft.includes(c)) return false;
+      if (this.weapon && !this.weapon.taken && this.weapon.cell === c) return false;
+      return true;
+    }
+    // 바위 옮기기 (맵 복사본에서 g=3 이동 → 길찾기 갱신). k<0 = 제자리로 굴러감
+    pushBoulder(bi, to, k) {
+      if (this.map.pristine !== false) this.map = cloneMap(this.map);
+      const m = this.map, B = this.boulders[bi], from = B.cell, was = this.blockInfo(from), s0 = B.since0 ?? -1;
+      m.g[from] = 0; m.g[to] = 3; m.breakable[from] = 0; m.breakable[to] = 0; finalizeGraphs(m);
+      B.cell = to; B.since = -1; B.since0 = this.blockInfo(to) ? this.turn : -1;
+      if (k >= 0) { B.pushes++; this.rockStats.pushes++; }
+      this.fx.push({ t: k >= 0 ? 'boulder' : 'boulderReset', from, to, cell: to, giant: k, turn: this.turn });
+      if (was && (k < 0 || (s0 >= 0 && this.turn - s0 >= 3))) this.log('boulderOpen', k >= 0 ? `🪨 ${was[0]}${was[2]} 다시 열렸다 (거인${k + 1}이 바위를 치움)` : `🪨 바위가 데굴데굴 제자리로 굴러갔다 — ${was[0]}${was[2]} 다시 열렸다`);
+    }
+    // 공정 규칙: 해치·계단·문 앞을 막은 바위는 BOULDER_RESET_SEC초 뒤 제자리로 굴러감 (제자리가 비어 있고, 굴러가도 길이 안 막힐 때)
+    boulderTick() {
+      const lim = secTurns(CFG.BOULDER_RESET_SEC);
+      this.boulders.forEach((B, bi) => {
+        const bk = this.blockInfo(B.cell);
+        if (!bk || bk[3] === 'door') { B.since = -1; return; } // 문 앞 바위는 그 판 동안 그대로 (거인이 치우지 않는 한)
+        if (B.since < 0) { B.since = this.turn; return; }
+        if (this.turn - B.since >= lim && B.cell !== B.home && this.boulderFree(B.home) && escapeOk(this, B.cell, B.home)) {
+          if (B.by >= 0) dropRock(this, B.by);
+          this.pushBoulder(bi, B.home, -1); this.rockStats.resets++;
+        }
+      });
+    }
     hasAllKeys() { return this.keysLeft.length === 0; }
     giantAt(pos) { for (const G of this.giants) if (G.pos === pos && G.out <= 0) return G.id; return -1; }
     catcherAt(pos) { for (const G of this.giants) if (G.pos === pos && G.stun <= 0 && G.out <= 0) return G.id; return -1; } // 기절·먹힌 거인은 못 잡음
@@ -635,6 +754,7 @@
         }
         if (m.B1 >= 0) {
           const lv = floorOf(m, R.pos), pl = floorOf(m, R.prev);
+          if (lv !== pl && lv === m.B1 && CFG.HATCH_NOISE > 0) for (const G of this.giants) if (G.out <= 0 && G.stun <= 0 && bfsC(m, R.prev, 2)[G.pos] <= CFG.HATCH_NOISE) { G.know = R.pos; G.knowTurn = this.turn; } // v22: 해치 뚜껑 소리 — 가까운 거인이 도망자가 지하로 간 걸 앎
           if (lv !== pl && (lv === m.B1 || pl === m.B1)) { this.fx.push({ t: 'hatch', cell: R.pos, turn: this.turn }); this.log('b1', lv === m.B1 ? '🕳️ 도망자가 해치를 타고 지하 1층으로 내려갔다' : '🕳️ 도망자가 지상으로 올라왔다'); }
           if (this.weapon && !this.weapon.taken && R.pos === this.weapon.cell) {
             this.weapon.taken = true; this.weapon.takenTurn = this.turn; R.inv.slayer = CFG.SLAYER_AMMO;
@@ -676,6 +796,7 @@
         } else if (S.cnt > 0) { S.cnt = 0; this.log('mission', '도망자가 발판에서 내려왔다 — 발판 미션이 처음으로 돌아갔다'); }
       });
       runnerBarricade(this);
+      if (this.boulders.length) this.boulderTick();
       // --- 거인: 감지 → 호출 → 이동
       this.giants.forEach((G, k) => giantSense(this, k));
       this.giants.forEach((G, k) => giantUseItems(this, k));
@@ -976,7 +1097,7 @@
       if (m.border) { if (m.border[w] || m.border[t] || m.lvl[w] !== m.lvl[R.pos] || m.lvl[t] !== m.lvl[R.pos]) continue; }
       else { const wyl = wy % FH, tyl = ty % FH; if (wyl === 0 || wyl === FH - 1 || tyl === 0 || tyl === FH - 1 || Math.floor(wy / FH) !== Math.floor(y / FH) || Math.floor(ty / FH) !== Math.floor(y / FH)) continue; }
       if (game.dinoHits(t)) continue;
-      if (m.g[w] === 0 || m.isExit[w] || m.g[t] !== 0 || m.isExit[t] || m.stairOf[t] >= 0 || m.stairOf[R.pos] >= 0) continue; // 계단 위/계단으로는 못 넘음
+      if (m.g[w] === 0 || m.g[w] === 3 || m.isExit[w] || m.g[t] !== 0 || m.isExit[t] || m.stairOf[t] >= 0 || m.stairOf[R.pos] >= 0) continue; // 계단 위/계단으로는 못 넘음 · v22: 바위(큰 돌)는 못 넘음
       if (game.giantAt(t) >= 0 || game.snakeAtHead(t)) continue;
       out.push([w, t]);
     }
@@ -1345,6 +1466,7 @@
     const m = game.map, R = game.runner, G = game.giants[k], g = game.gg[k];
     if (giantDetects(game, k)) { G.know = R.pos; G.knowTurn = game.turn; G.saw = true; }
     if (G.ambushSpot >= 0 && G.mode !== '매복') { releaseDoor(game, k); G.ambushSpot = -1; }
+    { const rk = giantRock(game, k); if (rk >= 0) return rk; } // v22: 바위로 탈출로 막기
     if (G.knowTurn === game.turn) {
       releaseDoor(game, k); G.ambushSpot = -1;
       const tp = G.know, dT = bfsC(m, tp, 2);
@@ -1432,6 +1554,82 @@
     return pickMove(game, k, (c) => d[c]);
   }
 
+  // ---------- v22 거인 바위 AI: 도망자의 탈출로(지하→지상 해치, 출구 문 앞)를 바위로 막음 ----------
+  function dropRock(game, k) {
+    const G = game.giants[k]; if (!G || !G.rock) return;
+    const B = game.boulders[G.rock.bi]; if (B && B.by === k) B.by = -1;
+    G.rock = null; if (G.mode === '바위 밀기') G.mode = '탐색';
+  }
+  function pickRock(game, k) {
+    const m = game.map, G = game.giants[k], g = game.gg[k];
+    const use = g.rockUse ?? 0.4, door = g.rockDoor ?? 0.4, goals = [];
+    const fresh = G.know >= 0 && game.turn - G.knowTurn <= 40;
+    // 1) 지하에 있는 도망자가 올라갈 해치 (가까운 순 2개)
+    if (fresh && m.B1 >= 0 && m.lvl[G.know] === m.B1 && use > 0.03) {
+      const dK = bfsC(m, G.know, 0);
+      m.hatches.map(([, b], i) => ({ i, b, d: dK[b] })).filter((h) => m.g[h.b] === 0 && h.d < 999).sort((x, y) => x.d - y.d).slice(0, 2)
+        .forEach((h) => goals.push({ kind: 'hatch', target: h.b, race: h.d }));
+    }
+    // 2) 출구 문 앞: 열쇠를 다 모았으면 언제나, 아니면 '문 막기'가 높을수록 일찍 (도망자에게 가까운 문)
+    const urg = game.hasAllKeys() ? 1 : 1 / (1 + game.keysLeft.length);
+    if (m.doorFront && urg + door >= 1) {
+      const dF = bfsC(m, fresh ? G.know : runnerObjective(game, m.runnerStart), 0);
+      const ds = m.doorFront.map((c, i) => ({ c, d: dF[m.exits[i]] })).filter((x) => x.c >= 0 && m.g[x.c] === 0).sort((a, b) => a.d - b.d);
+      if (ds.length) goals.push({ kind: 'door', target: ds[0].c, race: 999 });
+    }
+    if (!goals.length) return false;
+    const dG = bfsC(m, G.pos, 2), maxCost = 10 + use * 40, W = m.W;
+    const okCell = (c) => game.boulderFree(c) || c === G.pos;
+    let best = null;
+    for (const go of goals) game.boulders.forEach((B, bi) => {
+      if ((B.by >= 0 && B.by !== k) || floorOf(m, B.cell) !== floorOf(m, go.target) || game.blockInfo(B.cell)) return; // 이미 막고 있는 바위는 그대로 둠
+      const near = Math.min(dG[B.cell + 1], dG[B.cell - 1], dG[B.cell + W], dG[B.cell - W]);
+      if (near >= 999 || near + manhattan(m, B.cell, go.target) > maxCost) return;
+      const plan = boulderPlan(m, B.cell, go.target, okCell, CFG.BOULDER_MAX_PUSH, dG); if (!plan) return;
+      const cost = dG[2 * plan[0] - plan[1]] + plan.length - 1;
+      if (cost > maxCost || (go.kind === 'hatch' && cost > go.race + use * 25)) return;
+      if (!best || cost < best.cost) best = { ...go, bi, plan, cost };
+    });
+    if (!best) { G.rockCd = 12; return false; }
+    G.rock = { bi: best.bi, plan: best.plan, target: best.target, kind: best.kind, since: game.turn, wait: 0 };
+    game.boulders[best.bi].by = k; G.mode = '바위 밀기';
+    const nm = game.blockInfo(best.target);
+    if (nm) game.log('boulderGo', `🪨 거인${k + 1}이 바위를 밀기 시작했다… (${nm[0]}${nm[1]} 막으러)`);
+    return true;
+  }
+  // 바위 밀기 중이면 이번 턴에 갈 칸(밀면 바위가 있던 칸)을 돌려줌, 아니면 -1
+  function giantRock(game, k) {
+    const m = game.map, G = game.giants[k], R = game.runner;
+    if (!game.boulders || !game.boulders.length) return -1;
+    if (G.rockCd > 0) G.rockCd--;
+    if (G.knowTurn === game.turn && bfsC(m, R.pos, 2)[G.pos] <= 5) { if (G.rock) dropRock(game, k); return -1; } // 코앞의 도망자는 바로 추격
+    if (!G.rock) {
+      if (G.rockCd > 0 || (game.turn + k) % CFG.BOULDER_PLAN_EVERY) return -1;
+      if (!pickRock(game, k)) return -1;
+    }
+    const P = G.rock, B = game.boulders[P.bi], i = P.plan.indexOf(B.cell);
+    if (i < 0 || i >= P.plan.length - 1 || B.by !== k || game.turn - P.since > CFG.BOULDER_PLAN_TURNS || m.g[P.target] !== 0) { dropRock(game, k); G.rockCd = 10; return -1; }
+    const n = P.plan[i + 1], from = 2 * B.cell - n;
+    G.mode = '바위 밀기'; G.goal = from;
+    if (G.pos === from) {
+      if (!game.boulderFree(n)) { if (++P.wait > 6) { dropRock(game, k); G.rockCd = 10; return -1; } return G.pos; }
+      if (!escapeOk(game, B.cell, n)) { game.rockStats.refused++; dropRock(game, k); G.rockCd = CFG.BOULDER_CD; return -1; } // 공정 규칙: 모든 길을 막는 밀기는 금지
+      const old = B.cell; game.pushBoulder(P.bi, n, k);
+      if (n === P.target) {
+        const nm = game.blockInfo(n);
+        if (nm) {
+          game.rockStats[nm[3]]++;
+          game.fx.push({ t: 'boulderBlock', cell: n, giant: k, kind: nm[3], turn: game.turn });
+          game.log('boulder', nm[3] === 'door' ? `🪨 거인${k + 1}이 바위를 밀어 ${nm[0]}${nm[1]} 막았다! 도망자는 그 문으로 못 나간다` : nm[3] === 'hatch' ? `🪨 거인${k + 1}이 바위를 밀어 ${nm[0]}${nm[1]} 막았다! 도망자의 탈출로가 막혔다` : `🪨 거인${k + 1}이 바위를 밀어 계단을 막았다! 도망자의 길이 막혔다`);
+        }
+        dropRock(game, k); G.rockCd = CFG.BOULDER_CD;
+      }
+      return old;
+    }
+    const dF = bfsC(m, from, 2); if (!(dF[G.pos] < 999)) { dropRock(game, k); G.rockCd = 20; return -1; }
+    return pickMove(game, k, (c) => dF[c]);
+  }
+
   // ---------- v21 공룡 AI ----------
   // 2턴에 1번 움직임. 지하에서 보이는 가장 가까운 생물(도망자·거인)을 쫓고, 놓치면 잠시 마지막 위치로, 아니면 큰 복도를 어슬렁
   function dinoStep(game) {
@@ -1458,7 +1656,7 @@
     const df = dinoField(m, anchors);
     if (df[D.pos] === 0) { if (D.mode === '추적') D.last = -1; if (tgt < 0) D.roam = -1; return; }
     let nx = -1, bv = df[D.pos];
-    for (const n of m.dNbrs[D.pos]) { const v = df[n] + game.rng() * 0.5; if (df[n] < df[D.pos] && (nx < 0 || v < bv)) { bv = v; nx = n; } }
+    for (const n of m.dNbrs[D.pos]) { if (m.g[n] || m.g[n + 1] || m.g[n + W] || m.g[n + W + 1]) continue; const v = df[n] + game.rng() * 0.5; /* v22: 바위는 못 지나감 */ if (df[n] < df[D.pos] && (nx < 0 || v < bv)) { bv = v; nx = n; } }
     if (nx < 0) { if (++D.stall > 6) { D.ignoreUntil = game.turn + 25; D.last = -1; D.stall = 0; D.roam = -1; } return; }
     D.stall = 0; D.facing = [nx % W - D.pos % W, ((nx / W) | 0) - ((D.pos / W) | 0)]; D.pos = nx; D.path.push(nx);
     if (game.dinoHits(R.pos)) return game.dinoEatsRunner();
@@ -1517,7 +1715,7 @@
       for (let i = 0; i < (sPrev < 0.1 ? 2 : 1); i++) Ss.push(mutate(S0, this.snake.sigma, rng));
       const sScore = Ss.map(() => 0), sCnt = Ss.map(() => 0);
       const rScore = Rs.map(() => 0), gScore = Gs.map(() => 0);
-      let rw = 0, gw = 0, dw = 0, sw = 0, eats = 0, n = 0, wfound = 0, dinoR = 0, kills = 0;
+      let rw = 0, gw = 0, dw = 0, sw = 0, eats = 0, n = 0, wfound = 0, dinoR = 0, kills = 0, doorB = 0;
       for (let mi = 0; mi < k; mi++) {
         const seed = (rng() * 2 ** 32) >>> 0, map = generateMap(seed);
         for (let a = 0; a < Rs.length; a++) for (let b = 0; b < Gs.length; b++) {
@@ -1525,7 +1723,7 @@
           const game = new Game(map, Rs[a], Gs[b], seed + a * 7 + b * 13, Ss[si]);
           let tk = 0; while (!game.result) { game.step(); if (++tk % 30 === 0) yield -1; }
           const res = game.result; n++; eats += game.snakeAte.giants;
-          if (game.weapon && game.weapon.taken) wfound++; if (game.catcher === -4) dinoR++; kills += game.kills || 0;
+          if (game.weapon && game.weapon.taken) wfound++; if (game.rockStats && game.rockStats.door) doorB++; if (game.catcher === -4) dinoR++; kills += game.kills || 0;
           sCnt[si]++; sScore[si] += game.snakeAte.giants / CFG.SNAKE_WIN_EATS + (res === 'snake' ? 1 : 0);
           const prog = (map.keys.length - game.keysLeft.length + 0.5 * game.ms.filter((x) => x.done).length) / (map.keys.length * 1.5 + 1);
           if (res === 'runner') { rw++; rScore[a] += 1; }
@@ -1563,7 +1761,7 @@
         if (sAvg[si] > sAvg[0]) this.snake.level++;
         this.snake.genes = Ss[si];
       }
-      const rec = { gen: this.generation, runner: rw / n, giant: gw / n, draw: dw / n, snake: sw / n, eats: eats / n, weapon: wfound / n, dino: dinoR / n, kills: kills / n, n };
+      const rec = { gen: this.generation, runner: rw / n, giant: gw / n, draw: dw / n, snake: sw / n, eats: eats / n, weapon: wfound / n, dino: dinoR / n, kills: kills / n, doorBlock: doorB / n, n };
       this.history.push(rec); if (this.history.length > 2000) this.history.shift();
       return { rec, changes, n, rAcc: ri > 0, gAcc: gi > 0, sAcc: si > 0 };
     }
@@ -1576,7 +1774,7 @@
       // 예전 저장(새 유전자 없음): 빠진 유전자는 기본값으로 채움 (진화한 값은 그대로)
       if (this.runner && this.runner.genes) this.runner.genes = Object.assign(defaultRunner(), this.runner.genes);
       // v21: 거인 팀에 새 유전자(지하 수색·공룡 피하기)가 없으면 기본값으로 채움
-      this.giant.team = this.giant.team.map((gg) => Object.assign({ deepPatrol: 0.2, dinoDodge: 0.5 }, gg));
+      this.giant.team = this.giant.team.map((gg) => Object.assign({ deepPatrol: 0.2, dinoDodge: 0.5, rockUse: 0.4, rockDoor: 0.4 }, gg)); // v22: 바위 유전자
       // v19: 뷱 두뇌 (예전 저장본에는 없음 → Lv.1 기본 뷱으로 시작, 도망자·거인 기록은 그대로)
       this.snake = o.snake && o.snake.genes ? { level: o.snake.level || 1, sigma: o.snake.sigma || 0.12, genes: Object.assign(defaultSnake(), o.snake.genes) } : { genes: defaultSnake(), level: 1, sigma: 0.12 };
       this.lastSnakeRate = o.lastSnakeRate || 0;
@@ -1585,5 +1783,5 @@
     }
   }
 
-  return { dinoField, dinoAnchors, SNAKE_GENES, defaultSnake, snakePressure, CFG, floorOf, missionGoals, R_ITEMS, R_SPAWN, vaultMoves, G_ITEMS, ITEM_INFO, visibleCell, updateSeen, cloneMap, finalizeGraphs, smashChoice, giantSkip, giantsForWins, secTurns, giantHear, mulberry32, generateMap, bfs, bfsC, Game, Trainer, RUNNER_GENES, GIANT_GENES, defaultRunner, defaultGiantTeam, roleOf, mutate, sees, giantSees, lineOfSight };
+  return { boulderPlan, escapeOk, dinoField, dinoAnchors, SNAKE_GENES, defaultSnake, snakePressure, CFG, floorOf, missionGoals, R_ITEMS, R_SPAWN, vaultMoves, G_ITEMS, ITEM_INFO, visibleCell, updateSeen, cloneMap, finalizeGraphs, smashChoice, giantSkip, giantsForWins, secTurns, giantHear, mulberry32, generateMap, bfs, bfsC, Game, Trainer, RUNNER_GENES, GIANT_GENES, defaultRunner, defaultGiantTeam, roleOf, mutate, sees, giantSees, lineOfSight };
 });

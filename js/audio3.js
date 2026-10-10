@@ -139,7 +139,7 @@
     E.setIntensity = (v) => { E.target = Math.max(0, Math.min(1, v)); };
 
     // ---------- SFX ----------
-    const MIN_GAP = { shot: 0.12, miss: 0.12, stun: 0.25, smash: 0.35, vault: 0.2, key: 0.2, door: 1, win: 2, caught: 2, gulp: 0.4, item: 0.12, respawn: 0.4, grow: 2, snakeWin: 2, block: 0.3, roar: 0.8, barricade: 0.25, mission: 0.2, cloak: 0.4, boost: 0.4, smoke: 0.4, dinoRoar: 1.5, dinoBite: 0.8, stomp: 0.35, weapon: 1.5, slay: 0.4, hatch: 0.5 };
+    const MIN_GAP = { shot: 0.12, miss: 0.12, stun: 0.25, smash: 0.35, vault: 0.2, key: 0.2, door: 1, win: 2, caught: 2, gulp: 0.4, item: 0.12, respawn: 0.4, grow: 2, snakeWin: 2, block: 0.3, roar: 0.8, barricade: 0.25, mission: 0.2, cloak: 0.4, boost: 0.4, smoke: 0.4, dinoRoar: 1.5, dinoBite: 0.8, stomp: 0.35, weapon: 1.5, slay: 0.4, hatch: 0.5, rock: 0.3, rockBlock: 1 };
     const lastAt = {};
     const F = {
       // v21 지하: 공룡 포효(낮게 갈라지는 울음) · 공룡 발소리(쿵) · 공룡 물기 · 전설의 무기 줍기(반짝 상승 화음) · 번개창 처치(번개+천둥) · 해치(나무 삐걱)
@@ -148,6 +148,9 @@
       dinoBite(t) { F.dinoRoar(t); [0.15, 0.32].forEach((d) => { noise(t + d, 0.12, 0.3, sfxBus, { type: 'bandpass', f: 900, to: 300, q: 2, a: 0.002 }); osc('sine', 140, t + d, 0.15, 0.3, sfxBus, { to: 50, glide: 0.12, a: 0.002, r: 0.08 }); }); },
       weapon(t) { [72, 76, 79, 84, 88].forEach((n, i) => osc('triangle', mtof(n), t + i * 0.08, 0.5, 0.09, sfxBus, { a: 0.01, r: 0.3, send: 0.35 })); noise(t, 0.9, 0.05, sfxBus, { type: 'bandpass', f: 6000, to: 9000, q: 2, a: 0.05 }); osc('sine', mtof(96), t + 0.4, 0.8, 0.05, sfxBus, { a: 0.02, r: 0.5, send: 0.5 }); },
       slay(t) { noise(t, 0.18, 0.4, sfxBus, { type: 'highpass', f: 2500, a: 0.001 }); osc('sawtooth', 1400, t, 0.2, 0.12, sfxBus, { to: 120, glide: 0.18, a: 0.001, r: 0.1 }); noise(t + 0.12, 1.2, 0.3, sfxBus, { f: 500, to: 60, a: 0.01 }); osc('sine', 70, t + 0.12, 0.9, 0.35, sfxBus, { to: 30, glide: 0.8, a: 0.005, r: 0.4 }); },
+      // v22 바위: 돌 긁히는 소리(낮은 노이즈 + 덜컹) · 막을 때 묵직한 쿵
+      rock(t) { noise(t, 0.45, 0.22, sfxBus, { type: 'bandpass', f: 380, to: 220, q: 1.2, a: 0.03 }); noise(t, 0.4, 0.08, sfxBus, { type: 'bandpass', f: 1800, to: 900, q: 4, a: 0.05 }); osc('sawtooth', 58, t, 0.4, 0.07, sfxBus, { to: 46, glide: 0.35, lp: 260, a: 0.04, r: 0.15 }); },
+      rockBlock(t) { F.rock(t); osc('sine', 70, t + 0.35, 0.6, 0.5, sfxBus, { to: 30, glide: 0.5, a: 0.003, r: 0.3 }); noise(t + 0.35, 0.5, 0.25, sfxBus, { f: 300, to: 50, a: 0.004 }); },
       hatch(t) { noise(t, 0.3, 0.1, sfxBus, { type: 'bandpass', f: 700, to: 300, q: 5, a: 0.02 }); osc('triangle', 180, t + 0.05, 0.25, 0.06, sfxBus, { to: 120, glide: 0.2, a: 0.01 }); },
       shot(t) { noise(t, 0.35, 0.5, sfxBus, { f: 3200, to: 260, q: 0.8, a: 0.002 }); osc('sine', 150, t, 0.25, 0.45, sfxBus, { to: 40, glide: 0.2, a: 0.002, r: 0.12 }); noise(t + 0.06, 0.5, 0.08, sfxBus, { f: 700, to: 200 }); },
       miss(t) { F.shot(t); noise(t + 0.08, 0.3, 0.06, sfxBus, { type: 'bandpass', f: 1500, to: 600, q: 2 }); },

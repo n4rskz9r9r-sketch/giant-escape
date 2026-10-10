@@ -63,6 +63,7 @@
       t,
       dino: g.dino ? (() => { const D = g.dino, [x, y] = lerpPath(D.path, t); return { x, y, fx: D.facing[0], fy: D.facing[1], chase: D.mode === '추격', moving: D.path.length > 1 }; })() : null,
       weapon: g.weapon,
+      boulders: g.boulders ? g.boulders.map((B) => ({ cell: B.cell, blocked: !!g.blockInfo(B.cell), push: B.by >= 0 })) : [],
       runner: { x: rx, y: ry, f: rf, lv: rl, dx: bx - ax, dy: by - ay, sprint: g.runner.sprintLeft > 0, boost: g.runner.boost > 0, cloak: g.runner.cloak > 0, hasKey: g.keysHeld > 0, gem: g.runner.gem >= 0, onPlate: plateIdx, jump },
       giants: g.giants.map((G) => { const [x, y, f, lv] = lerpPath(G.path, t); return { x, y, f, lv, dead: !!G.dead, fx: G.facing[0], fy: G.facing[1], dash: G.dashLeft > 0 || G.path.length > 2, ban: G.doorBan > 0 || G.keyBan > 0, smashReady: G.smashCd <= 0, stun: G.stun > 0, blind: G.blind > 0, track: G.track > 0, out: G.out > 0, outSec: Math.ceil(G.out / tpsNow()), home: (() => { const h = g.map.giantStarts[G.id], [hx, hy, hf, hl] = xyf(h); return { x: hx, y: hy, f: hf, lv: hl }; })() }; }),
       snakes: g.snakes.map((S) => ({ f: S.floor, hidden: S.hidden > 0, stun: S.stun > 0, len: S.body.length, segs: S.body.map((c, j) => { const a = S.prevBody[Math.min(j, S.prevBody.length - 1)], [x0, y0, f0] = xyf(a), [x1, y1, f1] = xyf(c); return Math.abs(x1 - x0) + Math.abs(y1 - y0) > 1.5 ? { x: x1, y: y1, f: f1 } : { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t, f: f0 + (f1 - f0) * t }; }) })),
@@ -129,6 +130,8 @@
     if (g.weapon && !g.weapon.taken && vis(g.weapon.cell)) { const [px, py] = at(g.weapon.cell); c.fillStyle = 'rgba(127,216,255,.35)'; c.beginPath(); c.arc(px, py, T * (0.7 + 0.15 * Math.sin(now / 200)), 0, 7); c.fill(); if (mini) { c.fillStyle = '#ffd24a'; c.fillRect(px - T * .45, py - T * .45, T * .9, T * .9); } else emoji(c, '🔱', px, py, T * 0.85); }
     // 계단
     for (const pair of m.stairs || []) for (const st of pair) { if (!vis(st)) continue; const [px, py] = at(st); c.fillStyle = 'rgba(89,227,154,.35)'; c.fillRect(px - T / 2, py - T / 2, T, T); if (mini) { c.fillStyle = '#59e39a'; c.fillRect(px - T * .35, py - T * .35, T * .7, T * .7); } else emoji(c, flo(st) === 0 ? '🪜' : '⬇️', px, py, T * 0.7); }
+    // v22 바위 (거인만 밀 수 있음): 회색 돌 + 막은 곳이면 빨간 테
+    for (const B of g.boulders || []) { if (!vis(B.cell)) continue; const [px, py] = at(B.cell), blk = g.blockInfo(B.cell); c.fillStyle = '#8f877c'; c.beginPath(); c.arc(px, py, T * 0.47, 0, 7); c.fill(); c.fillStyle = '#b5ada2'; c.beginPath(); c.arc(px - T * 0.12, py - T * 0.12, T * 0.18, 0, 7); c.fill(); if (blk) { c.lineWidth = Math.max(2, T * 0.12); c.strokeStyle = '#ff4a4a'; c.beginPath(); c.arc(px, py, T * 0.55, 0, 7); c.stroke(); } if (!mini) emoji(c, '🪨', px, py, T * 0.7); }
     // 미션
     g.map.missions.forEach((M, mi) => {
       const S = g.ms[mi];
@@ -422,6 +425,8 @@
       else if (e.t === 'weapon') SND('weapon');
       else if (e.t === 'slay') SND('slay');
       else if (e.t === 'hatch') SND('hatch');
+      else if (e.t === 'boulder' || e.t === 'boulderReset') SND('rock');
+      else if (e.t === 'boulderBlock') SND('rockBlock');
     }
   }
   function soundTick(g, keys0, left0) {
@@ -767,6 +772,7 @@
   app.testRunnerWins = (n) => { for (let i = 0; i < n; i++) { const added = trainer.recordVisible('runner', -1); if (added.length) log(`도망자 ${trainer.growWins}승! 거인이 한 명 늘었다 👹 (거인${added.map((k) => k + 1).join('·')} 등장 — 이제 ${trainer.giantCount}명)`, 'grow'); } renderGenes(); updateGiantCount(); hudUpdate(); };
   log(`👋 ▶ 시작을 누르면 도망자 1명과 거인 ${trainer.giantCount}명이 2층 미로에서 대결합니다. 💥 거인은 30초마다 벽을 부술 수 있고, 도망자가 ${CFG.WINS_PER_GIANT}승 할 때마다 거인이 1명씩 늘어납니다(최대 ${CFG.GIANTS_MAX}명).`); log(` 🧰 열쇠는 잠긴 상자 안 — 미션(🕹️스위치 켜기 · 💎보석 옮기기 · ⏳발판 버티기)을 풀어야 열립니다. 🐍 뷱은 알약💊을 먹고 길어지며 거인을 삼킵니다 — 도망자는 뷱을 그냥 통과합니다(꼬리를 잡으면 잠시 숨음). 🌫 도망자는 직접 본 곳만 기억합니다(전체 지도 보기로 전체 공개). 🔫 도망자 기본 스킬 샷건: 최대 ${CFG.SHOTGUN_AMMO}발, ${CFG.SHOTGUN_RELOAD_SEC}초마다 1발 장전, 맞으면 ${CFG.STUN_SEC}초 기절(멀수록 잘 빗나감). 🎒 도망자 아이템: 💨연막탄 🚀부스터 👻투명망토 🤸벽넘기 🧱바리케이드 · 거인 아이템: 🔊포효 🐾냄새 추적기 🚧바리케이드. 💥 거인은 각자 30초 쿨타임으로 안쪽 벽·바리케이드를 부숩니다(바깥 벽·문 근처·계단은 불가). 👀 도망자 시점 버튼으로 1인칭으로 볼 수 있어요. ⚡ 빠른 훈련으로 수백 판을 순식간에 학습시킬 수 있어요.`, 'learn');
   log(`⛏️ 새 지역: 엄청 큰 지하 1층(B1)! 1층 해치로 내려갈 수 있고, 어딘가에 거인을 처치하는 전설의 무기 🔱 번개창이 숨겨져 있습니다. 하지만 지하에는 2×2 크기의 거대한 🦖 공룡이 돌아다닙니다.`, 'snake');
+  log(`🪨 새 함정: 바위! 지하에 2개, 1층 출구 문 근처에 1개. 거인만 한 칸씩 밀 수 있고, 해치나 출구 문 앞을 막아 도망자의 탈출을 막습니다. 문 앞을 막은 바위는 그 판 내내 그대로 — 하지만 두 문을 한꺼번에 막을 수는 없습니다.`, 'boulder');
   log(`🐍 새 규칙: 뷱도 학습합니다! 한 판에 거인 ${SW()}마리를 먹으면 뷱 승리(도망자·거인팀 모두 패배) — 도망자는 꼬리 잡기와 샷건으로 뷱을 막습니다.`, 'snake');
   setView(window.Render3D ? '3d' : '2d');
   if (window.Render3D) init3D();

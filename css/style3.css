@@ -216,3 +216,6 @@ body.stream .sound-hint:not(.big) { left:16px; bottom:16px; font-size:15px; }
 .log li.weapon, .log li.kill, .hud-log li.weapon, .hud-log li.kill { color:#9fe8ff; }
 .log li.dino, .hud-log li.dino { color:#c8ff6a; }
 .log li.b1, .hud-log li.b1 { color:#ffcf9a; }
+/* v22: 바위 로그 */
+.log li.boulder, .hud-log li.boulder, #h-log li.boulder { color:#ffb08a; font-weight:700; }
+.log li.boulderGo, .hud-log li.boulderGo, #h-log li.boulderGo, .log li.boulderOpen, #h-log li.boulderOpen { color:#d8cfc2; }
