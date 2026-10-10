@@ -11,6 +11,10 @@
     KEYS: 2,
     GIANTS: 4,               // 기본 거인 수 (도망자가 WINS_PER_GIANT승 할 때마다 1명씩 늘어 최대 GIANTS_MAX)
     SCOUT_CD: 200, SCOUT_LIFE: 70, SCOUT_STEPS: 2, SCOUT_FOOL: 8,  // v25 길 찾는 분신: 쿨타임 20초, 7초 동안 한 턴에 2칸씩 모르는 곳을 탐색해 도망자 기억에 넣음 (거인이 닿으면 사라짐 · 거인은 8칸 안에서 보이면 속을 수 있음)
+    LINKS: true, ELEV_SEC: 1.5, SAFE_MAX_SEC: 9, SAFE_CD_SEC: 30, SNAKE_B1: true, SNAKE_DINO_STUN_SEC: 3,  // v26 통로: 엘리베이터(1층·2층·지하, 탑승 1.5초, 도망자·거인) · 도망자 전용 환기구 2개 · 비밀 통로(2층↔지하, 모두) · 도망자 전용 안전 공간(최대 9초, 나오면 30초 뒤 재사용) · 뷱도 지하로 (공룡에게 밟히면 3초 기절)
+    GIANT_HP: 2, SHOT_KO_SEC: 8,  // v26 거인 체력: 샷건 2대째에 쓰러짐 → 8초 뒤 리스폰 방에서 체력 2로 부활 (번개창은 한 방에 영구 처치)
+    MAP_ITEM: true, MAP_SEE: 1, MAP_MIN_D: 22, MAP_B1: 0.7,  // v26 지도: 판마다 무작위 막다른 길(지상, 70%는 어두운 지하)에 숨겨짐 — 바로 옆(1칸)에서 보여야 눈에 띔. 주우면 미로 전체(지하·열쇠·미션·출구·해치·번개창)를 앎
+    ROOM: true, ROOM_SIZE: 3,  // v26 거인 전용 리스폰 방: 1층 먼 구석의 3×3 방, 빨간 문(거인만 통과). 부활한 거인은 여기서 나와 걸어가야 함
     TELE_CD: 300, TELE_MIN: 12, TELE_MAX: 24, TELE_TRIG: 4,  // v25 순간이동: 쿨타임 30초(고정), 같은 층 12~24칸(길 기준) 떨어진 안전한 곳으로
     GIANTS_MAX: 10, WINS_PER_GIANT: 5, LOSSES_PER_DROP: 5, GIANT_CROWD_REST: 0.0,  // v25: 거인 5연승마다 거인 -1 (최소 GIANTS) · 거인이 많을수록 더 자주 쉼
     TPS: 10,                 // 기본 속도(턴/초). '초' 단위 규칙은 이 속도 기준으로 턴으로 바꿈 (샷건 기절 3초 = 30턴, 뷱 소화·거인 부활 5초 = 50턴)
@@ -25,7 +29,7 @@
     GIANT_HEAR_MAX: 4, GIANT_HEAR_MIN: 1,   // v11: 5→4
     CALL_RANGE: 14,          // '호출' 유전자 최대 전달 거리
     GIANT_REST_P: 0,         // 추가 휴식 확률 (v16: 0.12→0 — 도망자 기본 샷건·뷱 통과 보정)
-    DASH_LEN: 2, DASH_COOLDOWN: 32,
+    DASH_LEN: 2, DASH_COOLDOWN: 32, GIANT_DASH: false,  // v26: 거인 돌진 제거 (예전 저장의 'dash' 유전자는 그대로 두지만 안 씀)
     SPRINT_LEN: 2, SPRINT_COOLDOWN: 13,   // v11: 16→13 (벽 부수기 상시 능력·부활 5초 보정)     // 도망자 전력질주
     DOOR_LINGER: 8, DOOR_BAN: 14,
     KEY_LINGER: 14, KEY_BAN: 30,
@@ -106,12 +110,17 @@
   function buildNbrs(map) {
     const { W, H, g } = map;
     map.floor = []; for (let i = 0; i < W * H; i++) if (g[i] === 0) map.floor.push(i);
-    map.nbrs = new Array(W * H);
+    map.nbrs = new Array(W * H); map.allNbrs = new Array(W * H);
     for (const i of map.floor) {
       const x = i % W, y = (i / W) | 0, list = [];
       for (const [dx, dy] of DIRS) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue; const j = ny * W + nx; if (g[j] === 0) list.push(j); }
       if (map.stairOf && map.stairOf[i] >= 0 && g[map.stairOf[i]] === 0) list.push(map.stairOf[i]); // 계단: 같은 자리 위/아래층
-      map.nbrs[i] = list;
+      let rx = null; // v26 통로: 'all'은 모두, 'runner'(환기구)는 도망자만
+      if (map.linkAt) { const l = map.linkAt.get(i); if (l) for (const j of l.cells) if (j !== i && g[j] === 0) { if (l.who === 'all') list.push(j); else (rx = rx || []).push(j); } }
+      const sf = map.isSafe;
+      map.allNbrs[i] = sf && sf[i] ? [] : (sf ? list.filter((j) => !sf[j]) : list); // 안전 공간은 거인 못 들어감
+      const rl = rx ? list.concat(rx) : list;
+      map.nbrs[i] = map.isRoom && map.isRoom[i] ? [] : (map.isRoom ? rl.filter((j) => !map.isRoom[j]) : rl); // v26: 리스폰 방은 거인만
     }
     map._bfs = new Map();
   }
@@ -119,12 +128,13 @@
     buildNbrs(map);
     const N = map.W * map.H;
     map.lockedNbrs = new Array(N); map.gNbrs = new Array(N);
-    for (const i of map.floor) { map.lockedNbrs[i] = map.nbrs[i].filter((j) => !map.isExit[j]); map.gNbrs[i] = map.lockedNbrs[i]; }
+    for (const i of map.floor) { map.lockedNbrs[i] = map.nbrs[i].filter((j) => !map.isExit[j]); map.gNbrs[i] = map.isRoom ? map.allNbrs[i].filter((j) => !map.isExit[j]) : map.lockedNbrs[i]; }
     // 뷱 전용: 같은 층만, 문 근처·계단·출구 제외
     map.sNbrs = new Array(N);
     // 뷱 전용: 문 근처·출구는 못 감. 계단은 탈 수 있음 (한 마리가 두 층을 오가며 사냥)
-    const sOk = (j) => !map.isExit[j] && !(map.nearDoor && map.nearDoor[j]) && !(map.lvl && map.lvl[j] === map.B1); // v21: 뷱은 지하에 못 감
-    for (const i of map.floor) map.sNbrs[i] = sOk(i) ? map.lockedNbrs[i].filter((j) => sOk(j)) : [];
+    const sOk = (j) => !map.isExit[j] && !(map.nearDoor && map.nearDoor[j]) && !(map.isSafe && map.isSafe[j]) && (CFG.SNAKE_B1 || !(map.lvl && map.lvl[j] === map.B1)); // v26: 뷱도 지하로 (해치·비밀 통로만, 환기구·엘리베이터·안전 공간은 못 씀)
+    const sEdge = (i, j) => { if (!map.lvl || map.lvl[i] === map.lvl[j] && Math.abs(i - j) <= map.W) return true; if (map.stairOf[i] === j) return true; const l = map.linkAt && map.linkAt.get(i); return !!(l && l.kind === 'tunnel' && l.cells.includes(j)); };
+    for (const i of map.floor) map.sNbrs[i] = sOk(i) ? map.lockedNbrs[i].filter((j) => sOk(j) && sEdge(i, j)) : [];
     map.graphs = [map.nbrs, map.lockedNbrs, map.gNbrs, map.sNbrs];
   }
   // 벽을 부수면 그 판의 맵만 복사해서 바꿈 (훈련에서 같은 맵을 여러 판이 공유하므로)
@@ -132,6 +142,42 @@
   const floorOf = (map, i) => (map.lvl ? map.lvl[i] : map.FH ? Math.floor(((i / map.W) | 0) / map.FH) : 0); // v21: 0=1층, 1=2층, 2=지하 1층(B1)
   function manhattan(map, a, b) { return Math.abs(a % map.W - b % map.W) + Math.abs(((a / map.W) | 0) - ((b / map.W) | 0)); }
 
+  // v26 거인 전용 리스폰 방: 1층 구석에 ROOM_SIZE×ROOM_SIZE 방을 파고 벽으로 두른 뒤 미로 쪽으로 문 1칸(빨간 문)만 냄.
+  // 방이 끊어 놓은 미로 길은 방 밖 벽을 뚫어 다시 이어 줌. 도망자·뷱·분신 그래프에서는 방 칸이 빠짐 (거인 그래프만 통과)
+  function carveRoom(map, rng) {
+    const W = map.W, FH = map.FH, g = map.g, S = CFG.ROOM_SIZE, idx = (x, y) => y * W + x;
+    const cx = rng() < 0.5 ? 0 : 1, cy = rng() < 0.5 ? 0 : 1;
+    const x0 = cx ? W - 1 - S : 1, y0 = cy ? FH - 1 - S : 1, bx = cx ? x0 - 1 : x0 + S, by = cy ? y0 - 1 : y0 + S;
+    map.isRoom = new Uint8Array(W * map.H); map.roomCells = [];
+    for (let y = y0; y < y0 + S; y++) for (let x = x0; x < x0 + S; x++) { const i = idx(x, y); g[i] = 0; map.isRoom[i] = 1; map.roomCells.push(i); }
+    const wall = [];
+    for (let y = Math.min(y0, by); y <= Math.max(y0 + S - 1, by); y++) { g[idx(bx, y)] = 1; wall.push(idx(bx, y)); }
+    for (let x = Math.min(x0, bx); x <= Math.max(x0 + S - 1, bx); x++) { if (!wall.includes(idx(x, by))) { g[idx(x, by)] = 1; wall.push(idx(x, by)); } }
+    map.roomWall = wall;
+    // 문: 바깥쪽 이웃이 길인 둘레 벽 칸 (모서리 제외), 방 가운데 줄에 가까운 것 우선
+    const out = (i) => { const x = i % W, y = (i / W) | 0; return x === bx ? idx(bx + (cx ? -1 : 1), y) : idx(x, by + (cy ? -1 : 1)); };
+    const inn = (i) => { const x = i % W, y = (i / W) | 0; return x === bx ? idx(bx + (cx ? 1 : -1), y) : idx(x, by + (cy ? 1 : -1)); };
+    const corner = idx(bx, by);
+    let cand = wall.filter((i) => i !== corner && g[out(i)] === 0 && out(i) > 0);
+    if (!cand.length) cand = wall.filter((i) => i !== corner);
+    const mid = (i) => { const x = i % W, y = (i / W) | 0; return x === bx ? Math.abs(y - (y0 + (S - 1) / 2)) : Math.abs(x - (x0 + (S - 1) / 2)); };
+    cand.sort((a, b) => mid(a) - mid(b) || rng() - 0.5);
+    const gate = cand[0]; g[gate] = 0; g[out(gate)] = 0; map.isRoom[gate] = 1; map.roomGate = gate; map.roomOut = out(gate); map.roomIn = inn(gate);
+    map.roomCells.sort((a, b) => manhattan(map, b, gate) - manhattan(map, a, gate)); // 문에서 먼 칸부터
+    // 1층 미로가 방 밖에서 한 덩어리인지 확인하고, 끊긴 조각은 방 둘레가 아닌 벽을 뚫어 이어 줌
+    const okWall = (i) => { const x = i % W, y = (i / W) | 0; return g[i] === 1 && x > 0 && y > 0 && x < W - 1 && y < FH - 1 && !wall.includes(i); };
+    for (let guard = 0; guard < 60; guard++) {
+      const seen = new Uint8Array(W * FH), q = [map.roomOut]; seen[map.roomOut] = 1;
+      for (let h = 0; h < q.length; h++) { const c = q[h], x = c % W, y = (c / W) | 0; for (const [dx, dy] of DIRS) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= W || ny >= FH) continue; const j = idx(nx, ny); if (!seen[j] && g[j] === 0 && !map.isRoom[j]) { seen[j] = 1; q.push(j); } } }
+      let fix = -1;
+      for (let y = 1; y < FH - 1 && fix < 0; y++) for (let x = 1; x < W - 1; x++) {
+        const i = idx(x, y); if (!okWall(i)) continue;
+        const ns = DIRS.map(([dx, dy]) => idx(x + dx, y + dy)).filter((j) => g[j] === 0 && !map.isRoom[j]);
+        if (ns.some((j) => seen[j]) && ns.some((j) => !seen[j])) { fix = i; break; }
+      }
+      if (fix < 0) break; g[fix] = 0;
+    }
+  }
   function genFloor(rng, W, H) {
     const g = new Uint8Array(W * H).fill(1);
     const idx = (x, y) => y * W + x;
@@ -165,6 +211,7 @@
     for (let f = 0; f < F; f++) g.set(genFloor(rng, W, FH), f * W * FH);
     const idx = (x, y) => y * W + x;
     const map = { W, H, FH, floors: F, g, seed, stairOf: new Int32Array(W * H).fill(-1), stairs: [], hatches: [], B1: -1 };
+    if (CFG.ROOM) carveRoom(map, rng);
     // v21: 층(레벨) 정보 — 격자에서 시작 행, 높이, 정렬 오프셋(지하는 지상 1층 아래 가운데에 오도록), 칸마다 레벨·정렬 y·바깥 테두리
     map.levels = []; for (let f = 0; f < F; f++) map.levels.push({ row0: f * FH, h: FH, zOff: 0, lz: f });
     if (BH) { map.B1 = F; map.levels.push({ row0: F * FH, h: BH, zOff: (BH - FH) / 2, lz: -1 }); }
@@ -173,7 +220,7 @@
     const fl = (i) => floorOf(map, i), ly = (i) => ((i / W) | 0) % FH;
     // 계단: 두 층 모두 길인 같은 자리, 서로 멀리
     if (F > 1) {
-      const cand = []; for (let y = 2; y < FH - 2; y++) for (let x = 2; x < W - 2; x++) { const a = idx(x, y); if (g[a] === 0 && g[a + W * FH] === 0) cand.push(a); }
+      const cand = []; for (let y = 2; y < FH - 2; y++) for (let x = 2; x < W - 2; x++) { const a = idx(x, y); if (g[a] === 0 && g[a + W * FH] === 0 && !(map.isRoom && map.isRoom[a])) cand.push(a); }
       for (let k = 0; k < CFG.STAIRS && cand.length; k++) {
         let c = cand.filter((a) => map.stairs.every(([s0]) => manhattan(map, s0, a) >= (W + FH) / 2.2));
         if (!c.length) c = cand.filter((a) => map.stairs.every(([s0]) => s0 !== a));
@@ -184,19 +231,19 @@
 
     buildNbrs(map);
     const pick = (c) => c[Math.floor(rng() * c.length)];
-    const corners = map.floor.filter((i) => { const x = i % W, y = ly(i); return fl(i) === 0 && map.stairOf[i] < 0 && (x < 6 || x > W - 7) && (y < 5 || y > FH - 6); });
+    const corners = map.floor.filter((i) => { const x = i % W, y = ly(i); return fl(i) === 0 && map.stairOf[i] < 0 && (x < 6 || x > W - 7) && (y < 5 || y > FH - 6) && !(map.isRoom && map.isRoom[i]) && !(map.roomGate >= 0 && manhattan(map, i, map.roomGate) < 16); });
     let corners2 = corners;
     if (map.stairs.length) { const dSt = map.stairs.map(([a]) => bfs(map, a)); corners2 = corners.filter((i) => dSt.every((d) => d[i] >= 10)); }
     map.runnerStart = pick(corners2.length ? corners2 : corners.length ? corners : map.floor);
-    const dR = bfs(map, map.runnerStart);
+    const dR = bfs(map, map.runnerStart), inRoom = (i) => !!(map.isRoom && map.isRoom[i]);
     const maxR = Math.max(...map.floor.map((i) => dR[i]));
     // 거인 3명: 도망자에게서 멀고, 서로도 떨어지게
     map.giantStarts = [];
     for (let k = 0; k < CFG.GIANTS_MAX; k++) { // 늘어날 거인까지 최대 인원만큼 출발점을 미리 정함 (앞의 N개만 사용)
       const gf = k % F;
-      let c = map.floor.filter((i) => fl(i) === gf && map.stairOf[i] < 0 && dR[i] >= maxR * 0.5 && map.giantStarts.every((s) => manhattan(map, s, i) >= 9));
-      if (!c.length) c = map.floor.filter((i) => fl(i) === gf && dR[i] >= maxR * 0.25 && !map.giantStarts.includes(i));
-      if (!c.length) c = map.floor.filter((i) => i !== map.runnerStart && !map.giantStarts.includes(i));
+      let c = map.floor.filter((i) => fl(i) === gf && map.stairOf[i] < 0 && !inRoom(i) && dR[i] >= maxR * 0.5 && map.giantStarts.every((s) => manhattan(map, s, i) >= 9));
+      if (!c.length) c = map.floor.filter((i) => fl(i) === gf && !inRoom(i) && dR[i] >= maxR * 0.25 && dR[i] < 999 && !map.giantStarts.includes(i));
+      if (!c.length) c = map.floor.filter((i) => i !== map.runnerStart && !inRoom(i) && !map.giantStarts.includes(i));
       map.giantStarts.push(pick(c));
     }
     const dGs = map.giantStarts.map((s) => bfs(map, s));
@@ -207,7 +254,7 @@
       if (!(x === 0 || y === 0 || x === W - 1 || y === FH - 1)) continue;
       if ((x === 0 || x === W - 1) && (y === 0 || y === FH - 1)) continue;
       const inner = x === 0 ? idx(1, y) : x === W - 1 ? idx(W - 2, y) : y === 0 ? idx(x, 1) : idx(x, FH - 2);
-      if (g[inner] !== 0 || inner === map.runnerStart || map.giantStarts.includes(inner) || map.stairOf[inner] >= 0) continue;
+      if (g[inner] !== 0 || inRoom(inner) || (map.roomGate >= 0 && manhattan(map, inner, map.roomGate) < 12) || inner === map.runnerStart || map.giantStarts.includes(inner) || map.stairOf[inner] >= 0) continue;
       doorCands.push({ door: idx(x, y), inner });
     }
     let aC = doorCands.filter((c) => dR[c.inner] >= maxR * 0.45 && dG[c.inner] >= 8);
@@ -238,15 +285,16 @@
       const yl = y % FH; if (yl === 0 || yl === FH - 1) continue; // 층마다 바깥 벽 제외
       const i = idx(x, y); if (g[i] !== 1) continue;
       if (map.exits.some((e) => manhattan(map, e, i) <= 3)) continue;
+      if (map.roomWall && map.roomWall.includes(i)) continue; // v26 리스폰 방 벽은 못 부숨
       map.breakable[i] = 1;
     }
     const dE = bfs(map, map.exits[0]), dE2 = bfs(map, map.exits[1]);
     map.keys = [];
     const used = new Set([map.runnerStart, ...map.giantStarts]);
-    const free = (i) => !map.isExit[i] && !map.nearDoor[i] && map.stairOf[i] < 0 && !used.has(i);
+    const free = (i) => !map.isExit[i] && !map.nearDoor[i] && map.stairOf[i] < 0 && !used.has(i) && !inRoom(i) && dR[i] < 999;
     for (let k = 0; k < CFG.KEYS; k++) {
       const kf = (k + 1) % F; // 열쇠는 층마다 나눠 둠 (첫 열쇠는 2층)
-      let c = map.floor.filter((i) => fl(i) === kf && free(i) && dR[i] >= 10 && dG[i] >= 6 && Math.min(dE[i], dE2[i]) >= 8 && map.keys.every((kk) => manhattan(map, kk, i) >= 8));
+      let c = map.floor.filter((i) => fl(i) === kf && free(i) && dR[i] >= 10 && dG[i] >= 6 && Math.min(dE[i], dE2[i]) >= 8 && !(map.roomGate >= 0 && manhattan(map, i, map.roomGate) < 8) && map.keys.every((kk) => manhattan(map, kk, i) >= 8));
       if (!c.length) c = map.floor.filter((i) => fl(i) === kf && free(i));
       if (!c.length) c = map.floor.filter((i) => free(i));
       const kc = pick(c); map.keys.push(kc); used.add(kc);
@@ -273,7 +321,7 @@
       map.missionCells.push(...(M.levers || []), ...(M.gem != null ? [M.gem, M.pedestal] : []), ...(M.plate != null ? [M.plate] : []));
     });
     map.isMission = new Uint8Array(W * H); for (const c of map.missionCells) map.isMission[c] = 1;
-    map.itemSpots = map.floor.filter((i) => !map.isExit[i] && !map.nearDoor[i] && dR[i] >= 4 && !map.keys.includes(i) && !map.giantStarts.includes(i) && !map.isMission[i] && map.stairOf[i] < 0);
+    map.itemSpots = map.floor.filter((i) => !map.isExit[i] && !map.nearDoor[i] && dR[i] >= 4 && dR[i] < 999 && !inRoom(i) && !map.keys.includes(i) && !map.giantStarts.includes(i) && !map.isMission[i] && map.stairOf[i] < 0);
     finalizeGraphs(map); // 문 근처가 정해진 뒤 뷱 그래프 다시 만들기
     // 뷱 출발점: 층마다, 도망자·거인 출발점에서 멀리
     map.snakeStarts = [];
@@ -284,6 +332,7 @@
     }
     map.surfFloor = map.floor.slice(); map.b1Floor = [];
     if (BH) buildB1(map, seed, used);
+    if (CFG.LINKS) placeLinks(map, seed, used);
     placeBoulders(map, seed, used);
     return map;
   }
@@ -317,6 +366,36 @@
     return null;
   }
   // 맵 생성 때 바위 자리: 지상 1층 문 근처 1개(문 앞까지 밀 수 있는 곳) + 지하 2개(해치까지 밀 수 있는 곳)
+  // v26 다른 통로: 엘리베이터(1층·2층·지하 같은 자리, 모두) · 도망자 전용 환기구(1층↔2층, 1층↔지하) · 비밀 통로(2층↔지하, 모두) · 도망자 전용 안전 공간 1칸(막다른 길)
+  function placeLinks(map, seed, used) {
+    const rng = mulberry32((seed ^ 0x5EC12E7) >>> 0), W = map.W, FH = map.FH, g = map.g, N = W * map.H;
+    map.links = []; map.linkAt = new Map(); map.isSafe = new Uint8Array(N); map.safeCells = [];
+    const L = map.B1 >= 0 ? map.levels[map.B1] : null;
+    const below = (i) => (L ? (L.row0 + (((i / W) | 0) % FH) + L.zOff) * W + (i % W) : -1), up = (i) => i + W * FH;
+    const dH = new Int16Array(N).fill(999), q = []; for (const [, b] of map.hatches || []) { dH[b] = 0; q.push(b); }
+    for (let h = 0; h < q.length; h++) { const c = q[h]; for (const n of map.nbrs[c] || []) if (map.lvl[n] === map.B1 && dH[n] === 999) { dH[n] = dH[c] + 1; q.push(n); } }
+    const wset = new Set(map.weaponCands || []);
+    const ok = (i) => i >= 0 && i < N && g[i] === 0 && !map.isExit[i] && !(map.nearDoor && map.nearDoor[i]) && map.stairOf[i] < 0 && !used.has(i) && !(map.isMission && map.isMission[i]) && !(map.isRoom && map.isRoom[i]) && !map.keys.includes(i) && !map.giantStarts.includes(i) && i !== map.runnerStart
+      && (map.lvl[i] !== map.B1 || (dH[i] < 999 && dH[i] <= (map.b1MaxDist || 99) * 0.55 && !wset.has(i)));
+    const pts = () => [...(map.stairs || []).flat(), ...(map.hatches || []).flat(), ...map.links.flatMap((l) => l.cells)];
+    const far = (i, d) => pts().every((p) => map.lvl[p] !== map.lvl[i] || manhattan(map, p, i) >= d);
+    const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+    const base = shuffle(map.floor.filter((i) => map.lvl[i] === 0));
+    const add = (kind, who, mk) => { for (const a of base) { const cells = mk(a); if (cells.every((c) => ok(c) && far(c, 6))) { const l = { id: map.links.length, kind, who, cells }; map.links.push(l); for (const c of cells) { used.add(c); map.linkAt.set(c, l); } return l; } } return null; };
+    if (map.floors > 1 && L) add('elev', 'all', (a) => [a, up(a), below(a)]);
+    if (map.floors > 1) add('vent', 'runner', (a) => [a, up(a)]);
+    if (L) add('vent', 'runner', (a) => [a, below(a)]);
+    if (map.floors > 1 && L) add('tunnel', 'all', (a) => [up(a), below(a)]);
+    // 안전 공간: 지상 막다른 길 1칸 (도망자 출발점에서 10칸 이상)
+    const dR = bfs(map, map.runnerStart);
+    const sc = shuffle(map.floor.filter((i) => map.lvl[i] !== map.B1 && ok(i) && (map.nbrs[i] || []).filter((j) => map.lvl[j] === map.lvl[i]).length === 1 && dR[i] >= 10 && dR[i] < 999 && far(i, 4)));
+    if (!sc.length) sc.push(...shuffle(map.floor.filter((i) => map.lvl[i] !== map.B1 && ok(i) && (map.nbrs[i] || []).filter((j) => map.lvl[j] === map.lvl[i]).length === 1 && dR[i] >= 5 && dR[i] < 999))); // 조건 완화
+    if (sc.length) { map.isSafe[sc[0]] = 1; map.safeCells.push(sc[0]); used.add(sc[0]); }
+    finalizeGraphs(map);
+    const bad = (c) => map.linkAt.has(c) || map.isSafe[c];
+    map.itemSpots = map.itemSpots.filter((c) => !bad(c));
+    if (map.weaponCands) map.weaponCands = map.weaponCands.filter((c) => !bad(c));
+  }
   function placeBoulders(map, seed, used) {
     const rng = mulberry32((seed ^ 0xB0D1E5) >>> 0), W = map.W, g = map.g;
     map.boulders = []; map.doorFront = map.exits.map((e) => (map.nbrs[e] || []).find((n) => !map.isExit[n]) ?? -1);
@@ -520,6 +599,8 @@
     { key: 'ruleWeapon', label: '점수판 읽기', up: '도망자가 거인이 많거나 연패 중이면 무기(거인 처치 → 다음 판 거인 감소)를 더 노린다', down: '도망자가 점수판과 상관없이 늘 같은 계획으로 움직인다' },
     { key: 'ruleClock', label: '시간 관리', up: '도망자가 남은 턴을 보며 막판엔 탈출·생존(무승부)을 우선한다', down: '도망자가 남은 시간을 신경 쓰지 않는다' },
     { key: 'scoutUse', label: '길잡이 분신', up: '도망자가 길 찾는 분신을 자주 보내 모르는 곳을 미리 살핀다', down: '도망자가 길잡이 분신을 거의 쓰지 않는다' },
+    { key: 'safeUse', label: '안전 공간', up: '도망자가 거인이 다가오면 안전 공간으로 일찍 숨는다', down: '도망자가 안전 공간을 거의 쓰지 않는다' },
+    { key: 'liftUse', label: '엘리베이터', up: '도망자가 엘리베이터를 즐겨 탄다', down: '도망자가 엘리베이터보다 계단·해치를 쓴다' },
     { key: 'teleUse', label: '순간이동', up: '도망자가 거인이 다가오면 일찍 순간이동으로 빠져나간다', down: '도망자가 순간이동을 잡히기 직전까지 아껴 둔다' },
     { key: 'dinoFear', label: '공룡 피하기', up: '도망자가 공룡 발소리가 들리면 멀리 돌아간다', down: '도망자가 공룡 옆을 아슬아슬하게 지나간다' },
   ];
@@ -528,7 +609,6 @@
     { key: 'intercept', label: '길목 차단', up: '거인이 도망자 앞길을 끊는 법을 배웠다', down: '거인이 정직하게 뒤를 쫓는 쪽으로 돌아갔다' },
     { key: 'lookahead', label: '예측 거리', up: '거인이 도망자의 몇 수 앞을 내다보기 시작했다', down: '거인이 가까운 미래만 보게 됐다' },
     { key: 'ambush', label: '매복 성향', up: '거인이 열쇠 근처 매복을 배웠다', down: '거인이 매복보다 순찰을 택했다' },
-    { key: 'dash', label: '돌진 거리', up: '거인이 더 먼 거리에서 돌진하기 시작했다', down: '거인이 돌진을 아껴 결정적 순간에 쓴다' },
     { key: 'patience', label: '끈기', up: '거인이 놓친 도망자를 더 끈질기게 추적한다', down: '거인이 놓친 흔적을 빨리 포기한다' },
     { key: 'scent', label: '냄새 추적', up: '거인이 발자국 냄새를 쫓는 법을 배웠다', down: '거인이 오래된 냄새는 무시한다' },
     { key: 'exitGuard', label: '출구 감시', up: '거인이 출구 근처 길목을 지키는 법을 배웠다', down: '거인이 출구보다 열쇠를 지키기 시작했다' },
@@ -544,6 +624,7 @@
     { key: 'dinoDodge', label: '공룡 피하기', up: '거인이 공룡을 보면 멀리 돌아간다', down: '거인이 공룡을 무서워하지 않는다' },
     { key: 'rockSeek', label: '바위 찾기', up: '거인이 어두운 지하를 뒤져 숨은 바위를 찾는다', down: '거인이 바위 찾기에 시간을 쓰지 않는다' },
     { key: 'rockUse', label: '바위로 해치 막기', up: '거인이 멀리 있는 바위도 굴려 와 지하 해치를 막는다', down: '거인이 가까운 바위만 겨우 민다' },
+    { key: 'gLift', label: '엘리베이터', up: '거인이 엘리베이터를 타고 층을 빨리 옮긴다', down: '거인이 엘리베이터를 피한다' },
     { key: 'rockDoor', label: '바위로 문 막기', up: '거인이 열쇠를 다 모으기 전부터 바위로 출구 문을 막는다', down: '거인이 마지막 순간에만 문을 막는다' },
   ];
   // v19: 뷱 유전자 (뷱도 판마다 변이된 도전자와 겨루며 진화)
@@ -555,13 +636,14 @@
     { key: 'sFloor', label: '층 이동', up: '뷱이 거인이 많은 층으로 계단을 타고 옮겨 간다', down: '뷱이 지금 층에 머무르려 한다' },
     { key: 'sAmbush', label: '갈림길 매복', up: '뷱이 갈림길에 숨어 거인을 기다리는 법을 배웠다', down: '뷱이 멈추지 않고 돌아다닌다' },
     { key: 'sLunge', label: '달려들기', up: '뷱이 더 먼 거리에서 거인에게 달려든다', down: '뷱이 달려들기를 아껴 코앞에서 쓴다' },
+    { key: 'sDeep', label: '지하 사냥', up: '뷱이 해치·비밀 통로로 지하에 내려가 사냥한다', down: '뷱이 지상에 머문다' },
     { key: 'sDodge', label: '도망자 피하기', up: '뷱이 꼬리를 잡히지 않게 도망자를 피해 다닌다', down: '뷱이 도망자를 신경 쓰지 않는다' },
   ];
-  function defaultSnake() { return { sHunt: 0.3, sChase: 0.3, sPill: 0.5, sCamp: 0.2, sFloor: 0.3, sAmbush: 0.2, sLunge: 0.3, sDodge: 0.3 }; }
+  function defaultSnake() { return { sHunt: 0.3, sChase: 0.3, sPill: 0.5, sCamp: 0.2, sFloor: 0.3, sAmbush: 0.2, sLunge: 0.3, sDodge: 0.3, sDeep: 0.3 }; }
   // Lv.1 초보 두뇌 (일부러 서툰 값). 거인은 처음부터 역할이 조금씩 다르게 출발
-  function defaultRunner() { return { danger: 0.5, flee: 0.35, greed: 0.7, loop: 0.3, predict: 0.5, memory: 0.4, keySafe: 0.35, sprint: 0.3, itemGreed: 0.4, panic: 0.4, shotgun: 0.4, barricade: 0.4, missionOrder: 0.4, plateNerve: 0.4, snakeFear: 0.5, snakeLure: 0.3, tailGrab: 0.3, vault: 0.4, snakeStop: 0.4, snakeShot: 0.3, delve: 0.8, weaponSeek: 0.8, dinoFear: 0.6, slayHunt: 0.5, ruleWeapon: 0.5, ruleClock: 0.5, teleUse: 0.5, scoutUse: 0.5 }; }
+  function defaultRunner() { return { danger: 0.5, flee: 0.35, greed: 0.7, loop: 0.3, predict: 0.5, memory: 0.4, keySafe: 0.35, sprint: 0.3, itemGreed: 0.4, panic: 0.4, shotgun: 0.4, barricade: 0.4, missionOrder: 0.4, plateNerve: 0.4, snakeFear: 0.5, snakeLure: 0.3, tailGrab: 0.3, vault: 0.4, snakeStop: 0.4, snakeShot: 0.3, delve: 0.8, weaponSeek: 0.8, dinoFear: 0.6, slayHunt: 0.5, ruleWeapon: 0.5, ruleClock: 0.5, teleUse: 0.5, scoutUse: 0.5, safeUse: 0.5, liftUse: 0.5 }; }
   function defaultGiantOne(k) {
-    const base = { stride: 0.5, intercept: 0.5, lookahead: 0.5, ambush: 0.3, dash: 0.1, patience: 0.3, scent: 0.2, exitGuard: 0.3, spread: 0.1, call: 0.2, smash: 0.3, roar: 0.4, tracker: 0.4, blockade: 0.3, guard: 0.3, snakeSense: 0.4, deepPatrol: 0.2, dinoDodge: 0.5, rockUse: 0.4, rockDoor: 0.4, rockSeek: 0.4 };
+    const base = { stride: 0.5, intercept: 0.5, lookahead: 0.5, ambush: 0.3, dash: 0.1, patience: 0.3, scent: 0.2, exitGuard: 0.3, spread: 0.1, call: 0.2, smash: 0.3, roar: 0.4, tracker: 0.4, blockade: 0.3, guard: 0.3, snakeSense: 0.4, deepPatrol: 0.2, dinoDodge: 0.5, rockUse: 0.4, rockDoor: 0.4, rockSeek: 0.4, gLift: 0.5 };
     if (k === 0) Object.assign(base, { intercept: 0.15, scent: 0.4 });           // 추격조
     if (k === 1) Object.assign(base, { intercept: 0.85, lookahead: 0.8 });       // 차단조
     if (k === 2) Object.assign(base, { ambush: 0.8, exitGuard: 0.6 });           // 매복조
@@ -591,7 +673,7 @@
         id: k, pos: s, prev: s, path: [s], facing: DIRS[((seed >>> 3) + k) & 3].slice(),
         know: -1, knowTurn: -999, saw: false, mode: '순찰', goal: -1, patrol: -1, modeSince: 0, ambushSpot: -1,
         dashLeft: 0, dashCd: 0, doorHeat: 0, doorBan: 0, keyHeat: 0, keyBan: 0, called: -99, smashCd: secTurns(CFG.SMASH_FIRST_SEC), smashTurn: -99, smashes: 0,
-        inv: { roar: 0, tracker: 0, barricade: 0 }, stun: 0, blind: 0, track: 0, out: 0,
+        inv: { roar: 0, tracker: 0, barricade: 0 }, stun: 0, blind: 0, track: 0, out: 0, hp: CFG.GIANT_HP,
       }));
       // 아이템 · 바리케이드 · 화면 효과 기록(fx)
       this.items = []; this.barricades = []; this.fx = []; this.lastItemSpawn = 0;
@@ -612,12 +694,22 @@
       // v21: 지하 — 전설의 무기(판마다 먼 곳 무작위) + 2×2 공룡
       this.weapon = null; this.dino = null; this.kills = 0; this.dinoAte = { giants: 0, runner: 0 };
       if (map.B1 >= 0 && map.weaponCands && map.weaponCands.length) this.weapon = { cell: map.weaponCands[Math.floor(this.rng() * map.weaponCands.length)], taken: false, takenTurn: -1 };
+      this.mapItem = null; // v26 지도
+      if (CFG.MAP_ITEM) {
+        const dR0 = bfsC(map, map.runnerStart, 0), keyish = new Set([...(map.keys || []), ...(map.missionCells || []), ...(map.giantStarts || [])]);
+        const ok = (i) => dR0[i] < 999 && dR0[i] >= CFG.MAP_MIN_D && !map.isExit[i] && !map.nearDoor[i] && map.stairOf[i] < 0 && !(map.isRoom && map.isRoom[i]) && !keyish.has(i) && map.g[i] === 0 && !(this.weapon && this.weapon.cell === i) && !(map.hatches || []).some(([a, b]) => a === i || b === i);
+        const wantB1 = map.B1 >= 0 && this.rng() < CFG.MAP_B1;
+        let c = map.floor.filter((i) => ok(i) && (map.nbrs[i] || []).length === 1 && (floorOf(map, i) === map.B1) === wantB1);
+        if (!c.length) c = map.floor.filter((i) => ok(i) && (map.nbrs[i] || []).length === 1);
+        if (!c.length) c = map.floor.filter(ok);
+        if (c.length) this.mapItem = { cell: c[Math.floor(this.rng() * c.length)], taken: false, spotted: false, takenTurn: -1 };
+      }
       // v22 바위 (맵에 g=3으로 제자리에 놓여 있음)
       this.boulders = (map.boulders || []).map((b) => ({ cell: b.home, home: b.home, by: -1, since: -1, pushes: 0, carried: -1 }));
       this.rockStats = { pushes: 0, hatch: 0, door: 0, stairs: 0, resets: 0, refused: 0, found: 0, firstFound: -1, lift: 0, carried: 0, carryTry: 0 };
       this.rockKnown = this.boulders.map(() => false); this.gB1seen = new Uint8Array(map.W * map.H);
       // v23: 공룡 2마리 (서로 멀리서 출발, 안 겹침)
-      this.dinos = []; this.teleStats = { used: 0, dist: 0 }; this.scouts = []; this.scoutStats = { used: 0, revealed: 0, popped: 0, fooled: 0, weapon: 0 };
+      this.dinos = []; this.teleStats = { used: 0, dist: 0 }; this.roomStats = { respawns: 0, exits: 0, walk: 0, visits: 0 }; this.linkStats = { elev: 0, vent: 0, tunnel: 0, runner: 0, giant: 0, snakeB1: 0, dinoStun: 0 }; this.safeStats = { uses: 0, turns: 0, saved: 0 }; this.scouts = []; this.scoutStats = { used: 0, revealed: 0, popped: 0, fooled: 0, weapon: 0 };
       if (map.B1 >= 0 && map.dinoStarts && map.dinoStarts.length) {
         const W = map.W, ds = map.dinoStarts.filter((p) => map.g[p] === 0 && map.g[p + 1] === 0 && map.g[p + W] === 0 && map.g[p + W + 1] === 0), pool = ds.length ? ds : map.dinoStarts;
         for (let n = 0; n < CFG.DINOS; n++) {
@@ -647,8 +739,17 @@
       R.spearCd = CFG.SLAYER_CD; R.used++; this.kills++;
       this.fx.push({ t: 'slay', from: R.pos, to: G.pos, cell: G.pos, giant: k, turn: this.turn });
       const left = this.giants.filter((H) => !H.dead).length;
-      this.log('kill', `⚡ 도망자가 번개창으로 거인${k + 1}을 처치했다! ☠️ (다음 판까지 복귀 불가 · 남은 거인 ${left}명)`);
+      this.log('kill', `⚡ 도망자가 번개창으로 거인${k + 1}을 처치했다! ☠️ (이번 판 복귀 불가 · 남은 거인 ${left}명)`);
       if (left === 0) { this.winBy = 'slay'; this.finish('runner'); } // v24: 거인 전멸 = 도망자 승리
+    }
+    // v26 통로 이용 기록·알림
+    useLink(k, lk, from, to) {
+      const m = this.map, nm = (c) => (m.lvl[c] === m.B1 ? '지하 1층' : m.lvl[c] === 1 ? '2층' : '1층'), who = k < 0 ? '도망자가' : `거인${k + 1}이`;
+      this.linkStats[lk.kind] = (this.linkStats[lk.kind] || 0) + 1; if (k < 0) this.linkStats.runner++; else this.linkStats.giant++;
+      this.fx.push({ t: 'link', kind: lk.kind, from, to, cell: to, giant: k, turn: this.turn });
+      if (lk.kind === 'elev') this.log('elev', `🛗 ${who} 엘리베이터를 탔다 (${nm(from)} → ${nm(to)}, ${CFG.ELEV_SEC}초)`);
+      else if (lk.kind === 'vent') this.log('vent', `🌀 도망자가 비밀 환기구로 빠져나갔다 (${nm(from)} → ${nm(to)}) — 거인은 못 지나감`);
+      else this.log('tunnel', `⛏️ ${who} 비밀 통로를 지나갔다 (${nm(from)} → ${nm(to)})`);
     }
     // v25 길 찾는 분신: 도망자와 똑같이 생긴 분신이 모르는 곳(가장 가까운 미탐색 칸)으로 달려가며 본 것을 도망자 기억에 넣음
     sendScout() {
@@ -686,6 +787,7 @@
           S.prev = S.pos; S.pos = nx; S.path.push(nx);
           const before = R.seen.reduce ? 0 : 0; updateSeen(this, nx); // 본 것은 도망자 기억으로
           const Wp = this.weapon;
+          { const MI = this.mapItem; if (MI && !MI.taken && !MI.spotted && floorOf(m, MI.cell) === floorOf(m, nx) && manhattan(m, MI.cell, nx) <= CFG.MAP_SEE && lineOfSight(m, nx, MI.cell)) { MI.spotted = true; this.log('scout', '👥 분신이 숨겨진 지도를 찾아냈다! 🗺️'); } }
           if (Wp && !Wp.taken && !Wp.spotted && manhattan(m, Wp.cell, nx) <= CFG.WEAPON_SEE && lineOfSight(m, nx, Wp.cell)) { Wp.spotted = true; this.scoutStats.weapon++; this.log('scout', '👥 분신이 어둠 속에서 번개창을 찾아냈다! 🔱'); }
         }
         S.life--;
@@ -871,10 +973,12 @@
       if (R.sprintLeft > 0) { rMoves = 2; R.sprintLeft--; }
       if (R.boost > 0) { rMoves = 2; R.boost--; }
       R.path = [R.pos];
+      if (R.lift > 0) { R.lift--; rMoves = 0; } // v26: 엘리베이터 타는 중
       for (let s = 0; s < rMoves; s++) {
         R.prev = R.pos;
         R.vaultOver = -1;
         R.pos = runnerDecide(this);
+        { const lk = m.linkAt && R.pos !== R.prev ? m.linkAt.get(R.prev) : null; if (lk && lk.cells.includes(R.pos)) { this.useLink(-1, lk, R.prev, R.pos); if (lk.kind === 'elev') { R.lift = secTurns(CFG.ELEV_SEC); s = rMoves; } } }
         if (R.vaultOver >= 0) { // 벽넘기: 안쪽 벽(또는 바리케이드) 한 칸을 뛰어넘음
           R.inv.vault--; R.used++; R.vaults++; R.vaultTurn = this.turn;
           R.path.push(R.vaultOver); // 화면 보간용: 벽 위를 지나가는 점
@@ -890,10 +994,21 @@
           this.fx.push({ t: 'pickup', cell: R.pos, type: it.type, who: -1, turn: this.turn });
           this.log('item', `도망자가 ${ITEM_INFO[it.type].obj} 주웠다! ${ITEM_INFO[it.type].icon}`);
         }
+        { const MI = this.mapItem; // v26 지도
+          if (MI && !MI.taken) {
+            if (!MI.spotted && floorOf(m, MI.cell) === floorOf(m, R.pos) && manhattan(m, MI.cell, R.pos) <= CFG.MAP_SEE && lineOfSight(m, R.pos, MI.cell)) MI.spotted = true;
+            if (R.pos === MI.cell) {
+              MI.taken = true; MI.takenTurn = this.turn; R.hasMap = true; R.seen.fill(1);
+              if (this.weapon && !this.weapon.taken) this.weapon.spotted = true;
+              this.fx.push({ t: 'mapFound', cell: R.pos, turn: this.turn });
+              this.log('map', '🗺️ 도망자가 지도를 찾았다! 미로 전체가 보인다 (지하·열쇠·미션·출구·해치·번개창 위치까지)');
+            }
+          }
+        }
         if (m.B1 >= 0) {
           const lv = floorOf(m, R.pos), pl = floorOf(m, R.prev);
           if (lv !== pl && lv === m.B1 && CFG.HATCH_NOISE > 0) for (const G of this.giants) if (G.out <= 0 && G.stun <= 0 && bfsC(m, R.prev, 2)[G.pos] <= CFG.HATCH_NOISE) { G.know = R.pos; G.knowTurn = this.turn; } // v22: 해치 뚜껑 소리 — 가까운 거인이 도망자가 지하로 간 걸 앎
-          if (lv !== pl && (lv === m.B1 || pl === m.B1)) { this.fx.push({ t: 'hatch', cell: R.pos, turn: this.turn }); this.log('b1', lv === m.B1 ? '🕳️ 도망자가 해치를 타고 지하 1층으로 내려갔다' : '🕳️ 도망자가 지상으로 올라왔다'); }
+          if (lv !== pl && (lv === m.B1 || pl === m.B1) && m.stairOf[R.prev] === R.pos) { this.fx.push({ t: 'hatch', cell: R.pos, turn: this.turn }); this.log('b1', lv === m.B1 ? '🕳️ 도망자가 해치를 타고 지하 1층으로 내려갔다' : '🕳️ 도망자가 지상으로 올라왔다'); }
           if (this.weapon && !this.weapon.taken && R.pos === this.weapon.cell) {
             this.weapon.taken = true; this.weapon.takenTurn = this.turn; R.inv.slayer = CFG.SLAYER_AMMO;
             this.fx.push({ t: 'weapon', cell: R.pos, turn: this.turn });
@@ -951,13 +1066,21 @@
         G.prev = G.pos; G.path = [G.pos];
         if (G.smashCd > 0) G.smashCd--; // 벽 부수기 쿨다운은 뷱 배 속에 있을 때도 계속 흐름 (부활해도 초기화하지 않음)
         if (G.out > 0) { if (--G.out === 0) this.respawnGiant(k); continue; }
+        if (m.isRoom) { // v26 리스폰 방 드나들기
+          const inside = !!m.isRoom[G.pos];
+          if (G.inRoom && !inside) { G.inRoom = false; this.roomStats.exits++; this.roomStats.walk += this.turn - (G.roomSince || this.turn); this.fx.push({ t: 'roomExit', cell: G.pos, giant: k, turn: this.turn }); this.log('roomExit', `🚪 거인${k + 1}이 리스폰 방에서 나와 다시 사냥에 나섰다`); }
+          else if (!G.inRoom && inside && !G.roomVisit) { G.roomVisit = true; this.roomStats.visits++; }
+          else if (!inside) G.roomVisit = false;
+          if (G.inRoom && !G.roomSince) G.roomSince = this.turn;
+        }
         if (G.blind > 0) G.blind--;
         if (G.stun > 0) { if (--G.stun === 0) this.log('stun', `거인${k + 1}이 정신을 차렸다 💫`); continue; }
+        if (G.lift > 0) { G.lift--; continue; } // v26 엘리베이터
         // v25 무리 피로: 거인이 4명보다 많으면 한 명 늘 때마다 조금씩 더 자주 쉼 (많은 거인 = 덜 날렵)
         const crowd = Math.max(0, this.giants.length - CFG.GIANTS) * CFG.GIANT_CROWD_REST;
         let moves = ((this.turn + k) % giantSkip(gg) === 0 || this.rng() < CFG.GIANT_REST_P + crowd) ? 0 : 1;
         if (G.dashCd > 0) G.dashCd--;
-        if (G.dashLeft === 0 && G.dashCd === 0 && G.saw) {
+        if (CFG.GIANT_DASH && G.dashLeft === 0 && G.dashCd === 0 && G.saw) { // v26: 거인 돌진 없음 (GIANT_DASH=false)
           const d = bfsC(m, G.pos, 2)[R.pos];
           if (d <= 2 + Math.round(gg.dash * 10)) { G.dashLeft = CFG.DASH_LEN; G.dashCd = CFG.DASH_COOLDOWN; this.log('dash', `거인${k + 1}이 돌진한다! 💨`); }
         }
@@ -976,7 +1099,8 @@
           if (this.gscent) this.gscent[G.pos] = this.turn; // v23: 거인 발자국 냄새 (공룡이 맡음)
           if (G.pos !== before && manhattan(m, G.pos, before) === 1) G.facing = [G.pos % m.W - before % m.W, ((G.pos / m.W) | 0) - ((before / m.W) | 0)];
           G.path.push(G.pos);
-          if (G.pos === R.pos) { this.catcher = k; return this.finish('giant'); }
+          if (G.pos === R.pos && !(R.lift > 0)) { this.catcher = k; return this.finish('giant'); }
+          { const lk = m.linkAt && G.pos !== before ? m.linkAt.get(before) : null; if (lk && lk.cells.includes(G.pos)) { this.useLink(k, lk, before, G.pos); if (lk.kind === 'elev') { G.lift = secTurns(CFG.ELEV_SEC); break; } } }
           if (this.dinos.length && this.dinoHits(G.pos)) { this.dinoBite(k); break; }
           { const S = this.snakeAtHead(G.pos); if (S && !(S.stun > 0)) { this.eatGiant(S, k); break; } }
           const gi2 = this.items.findIndex((it) => it.cell === G.pos && it.side === 'G' && G.inv[it.type] === 0);
@@ -994,22 +1118,27 @@
       for (const S of this.snakes) { snakeStep(this, S); if (this.result) return; }
       this._sb = null;
       for (const D of this.dinos) { dinoStep(this, D); if (this.result) return; }
+      if (this.dinos.length) for (const S of this.snakes) { if (S.hidden > 0 || S.stun > 0) continue; const hb = S.body.some((c) => this.dinoHits(c)); if (hb) { S.stun = secTurns(CFG.SNAKE_DINO_STUN_SEC); this.linkStats.dinoStun++; this.log('dinoSnake', `🦖 공룡이 뷱을 밟았다! 뷱이 ${CFG.SNAKE_DINO_STUN_SEC}초 기절 🐍💫`); } } // v26 공룡 vs 뷱: 공룡은 뷱을 못 먹지만 밟으면 기절
       if (this.turn - this.lastPill >= CFG.PILL_RESPAWN) { this.lastPill = this.turn; if (this.pills.length < CFG.PILL_MAX) this.spawnPill(); }
       if (this.turn - this.lastItemSpawn >= CFG.ITEM_RESPAWN) { this.lastItemSpawn = this.turn; if (this.items.length < CFG.ITEM_MAX) this.spawnItem(); }
       if (this.boulders.length) this.checkSealed();
       if (this.turn >= CFG.MAX_TURNS) return this.finish('draw');
     }
     respawnGiant(k) {
-      const G = this.giants[k], m = this.map; let c = m.giantStarts[k];
+      const G = this.giants[k], m = this.map; let c = m.giantStarts[k], inRoom = false;
       const sb = this.snakeBody(), bad = (i) => m.g[i] !== 0 || this.giantAt(i) >= 0 || i === this.runner.pos || this.snakeAtHead(i) || sb.has(i) || !m.gNbrs[i];
       // v19: 뷱 머리가 출발점 바로 근처면 다른 출발점(뷱에게서 가장 먼 곳)에서 부활
       { const heads = this.snakes.filter((S) => S.hidden <= 0).map((S) => bfsC(m, S.body[0], 0)), near = (i) => heads.some((d) => d[i] <= CFG.SNAKE_SPAWN_SAFE);
         if (near(c)) { let best = -1, bv = -1; for (const s0 of m.giantStarts) { if (bad(s0) || near(s0)) continue; const v = Math.min(...heads.map((d) => d[s0])); if (v > bv) { bv = v; best = s0; } } if (best >= 0) c = best; } }
-      if (bad(c)) { const dr = bfsC(m, this.runner.pos, 2), c0 = c; let best = -1, bd = Infinity; for (const i of m.floor) { if (bad(i) || dr[i] <= 3 || floorOf(m, i) !== floorOf(m, c0)) continue; const v = manhattan(m, i, c0); if (v < bd) { bd = v; best = i; } } if (best >= 0) c = best; }
+      if (m.roomCells && m.roomCells.length) { const rc = m.roomCells.find((i) => !bad(i)) ?? (!bad(m.roomGate) ? m.roomGate : -1); if (rc >= 0) { c = rc; inRoom = true; } } // v26: 리스폰 방에서 부활
+      if (!inRoom && bad(c)) { const dr = bfsC(m, this.runner.pos, 2), c0 = c; let best = -1, bd = Infinity; for (const i of m.floor) { if (bad(i) || dr[i] <= 3 || floorOf(m, i) !== floorOf(m, c0)) continue; const v = manhattan(m, i, c0); if (v < bd) { bd = v; best = i; } } if (best >= 0) c = best; }
       G.pos = c; G.prev = c; G.path = [c]; G.mode = '순찰'; G.modeSince = this.turn; G.patrol = -1; G.know = -1; G.knowTurn = -999;
       this.fx.push({ t: 'respawn', cell: c, giant: k, turn: this.turn });
-      if (G.outBy === 'dino') this.log('dino', `거인${k + 1}이 정신을 차리고 출발점에 다시 나타났다 😵`);
-      else this.log('snake', `거인${k + 1}이 뷱의 배 속에서 빠져나와 출발점에 다시 나타났다 😵`);
+      G.hp = CFG.GIANT_HP; G.inRoom = inRoom; G.roomSince = this.turn; G.roomVisit = inRoom; if (inRoom) this.roomStats.respawns++;
+      const where = inRoom ? '리스폰 방에' : '출발점에';
+      if (G.outBy === 'shotgun') this.log('respawn', `거인${k + 1}이 다시 일어나 ${where} 나타났다 😵 (체력 ${CFG.GIANT_HP})`);
+      else if (G.outBy === 'dino') this.log('dino', `거인${k + 1}이 정신을 차리고 ${where} 다시 나타났다 😵`);
+      else this.log('snake', `거인${k + 1}이 뷱의 배 속에서 빠져나와 ${where} 다시 나타났다 😵`);
       G.outBy = null;
     }
     snakeEatsRunner(S) {
@@ -1070,17 +1199,51 @@
       const x = c % W;
       for (let d = 0; d < 4; d++) {
         const nb = d === 0 ? (x < W - 1 ? c + 1 : -1) : d === 1 ? (x > 0 ? c - 1 : -1) : d === 2 ? c + W : c - W;
-        if (nb < 0 || nb >= N || !pass(nb)) continue;
+        if (nb < 0 || nb >= N || !pass(nb) || (m.isRoom && m.isRoom[nb])) continue;
         const nd = dc + cost[nb]; if (nd < dist[nb]) { dist[nb] = nd; if (n < 8190) push(nd, nb); }
       }
       const sp = m.stairOf ? m.stairOf[c] : -1;
       if (sp >= 0 && (!seen || seen[c] === 1 || seen[sp] === 1) && pass(sp)) { const nd = dc + cost[sp]; if (nd < dist[sp]) { dist[sp] = nd; if (n < 8190) push(nd, sp); } }
+      const lk = m.linkAt && m.linkAt.get(c); if (lk) for (const sp2 of lk.cells) if (sp2 !== c && (!seen || seen[c] === 1 || seen[sp2] === 1) && pass(sp2)) { const nd = dc + cost[sp2] + (lk.kind === 'elev' ? CFG.ELEV_SEC * CFG.TPS * 0.5 : 0); if (nd < dist[sp2]) { dist[sp2] = nd; if (n < 8190) push(nd, sp2); } } // v26 통로
     }
     return dist;
   }
 
   // ---------- 도망자 AI (거인 4명 모두 고려, 아는 지도만 사용) ----------
+  // v26 안전 공간: 위협받을 때 가까우면 숨음. 최대 SAFE_MAX_SEC 머문 뒤 나와야 하고 SAFE_CD_SEC 동안 다시 못 들어감
   function runnerDecide(game) {
+    const m = game.map, R = game.runner, g = game.rg;
+    if (R.safeCd > 0) R.safeCd--;
+    if (!m.isSafe || !m.safeCells || !m.safeCells.length) return runnerDecide0(game);
+    if (!m.isSafe[R.pos] && R.safeT > 0) { R.safeT = 0; R.safeCd = secTurns(CFG.SAFE_CD_SEC); } // 순간이동 등으로 빠져나옴
+    const safe = m.safeCells[0], gd = game.giants.filter((G) => G.out <= 0).map((G) => bfsC(m, G.pos, 2));
+    const near = (c) => (gd.length ? Math.min(...gd.map((d) => { let best = d[c]; for (const n of m.nbrs[c] || []) best = Math.min(best, d[n] + 1); return best; })) : 99);
+    if (m.isSafe[R.pos]) {
+      updateSeen(game); R.safeT = (R.safeT || 0) + 1; game.safeStats.turns++;
+      const out = (m.nbrs[R.pos] || []).filter((c) => !m.isSafe[c] && game.giantAt(c) < 0);
+      if (R.safeT < secTurns(CFG.SAFE_MAX_SEC) && (near(R.pos) <= 6 || R.safeT < 15)) { R.mode = '안전 공간'; return R.pos; }
+      R.safeT = 0; R.safeCd = secTurns(CFG.SAFE_CD_SEC);
+      game.log('safeOut', `🛡️ 도망자가 안전 공간에서 나왔다 (${CFG.SAFE_CD_SEC}초 뒤 다시 들어갈 수 있음)`);
+      if (!out.length) return (m.nbrs[R.pos] || []).find((c) => !m.isSafe[c]) ?? R.pos; // 입구를 거인이 막고 있어도 시간이 다 되면 나가야 함
+      out.sort((a, b) => near(b) - near(a)); return out[0];
+    }
+    if (!(R.safeCd > 0) && R.seen[safe]) {
+      const all = game.hasAllKeys(), dS = bfsC(m, safe, all ? 0 : 1), mine = dS[R.pos], su = g.safeUse ?? 0.5;
+      const threat = near(R.pos);
+      if (mine < 999 && threat <= 2 + Math.round(su * 5) && mine <= 2 + Math.round(su * 8) && near(safe) > mine) {
+        let nx = -1; for (const c of m.nbrs[R.pos] || []) if (dS[c] < mine && game.giantAt(c) < 0 && (nx < 0 || near(c) > near(nx))) nx = c;
+        if (nx >= 0) {
+          if (nx === safe) { game.safeStats.uses++; R.safeT = 0; game.fx.push({ t: 'safeIn', cell: safe, turn: game.turn }); game.log('safeIn', `🛡️ 도망자가 안전 공간에 숨었다! 거인은 못 들어옴 (최대 ${CFG.SAFE_MAX_SEC}초)`); }
+          updateSeen(game); R.mode = '안전 공간으로'; return nx;
+        }
+      }
+    }
+    const c = runnerDecide0(game);
+    if (m.isSafe[c] && R.safeCd > 0) return R.pos; // 쿨타임 중엔 못 들어감
+    if (m.isSafe[c]) { game.safeStats.uses++; R.safeT = 0; game.fx.push({ t: 'safeIn', cell: c, turn: game.turn }); game.log('safeIn', `🛡️ 도망자가 안전 공간에 숨었다! 거인은 못 들어옴 (최대 ${CFG.SAFE_MAX_SEC}초)`); }
+    return c;
+  }
+  function runnerDecide0(game) {
     const m = game.map, R = game.runner, g = game.rg, N = m.W * m.H, W = m.W;
     const all = game.hasAllKeys(), gid = all ? 0 : 1, rN = m.graphs[gid];
     updateSeen(game);
@@ -1191,6 +1354,7 @@
     const tired = !hunt && B1 >= 0 && R.b1Turns > CFG.B1_STAY_MIN + (g.delve ?? 0.3) * CFG.B1_STAY_GENE;
     const b1Pen = hunt ? 0 : tired ? 300 : Math.max(0, (1 - (g.delve ?? 0.3)) * 40 - wantW * 14);
     if (game.weapon && !game.weapon.taken && game.weapon.spotted && !tired) seeds.push([game.weapon.cell, (1 - wantW) * 20]);
+    if (game.mapItem && !game.mapItem.taken && game.mapItem.spotted) seeds.push([game.mapItem.cell, 0]); // v26: 본 지도는 바로 주우러 감
     for (let y = 1; y < m.H - 1; y++) for (let x = 1; x < W - 1; x++) {
       const c = y * W + x; if (!seenS[c] || !pass(c)) continue;
       const pen = B1 >= 0 && m.lvl[c] === B1 ? b1Pen : hunt ? 25 : 0;
@@ -1206,6 +1370,7 @@
     const fleeR = (2 + g.flee * 7) * (sealed ? 1.5 : 1) * (huntG ? CFG.HUNT_FLEE : 1); // 봉쇄되면 더 멀리서부터 피함 · 사냥 중엔 거의 안 피함
     const cost = new Float64Array(N).fill(1);
     for (let i = 0; i < N; i++) if (!seenS[i]) cost[i] = ucost;
+    if (m.links) for (const l of m.links) if (l.kind === 'elev') for (const c of l.cells) cost[c] += (1 - (g.liftUse ?? 0.5)) * 14; // v26 엘리베이터 선호 유전자
     if (dEff && (!huntG || CFG.HUNT_FLEE > 0.35)) { const K = g.danger * 30; for (const i of m.floor) { const de = dEff[i] - predictShift; if (de < fleeR) { const r = (fleeR - de) / fleeR; cost[i] = 1 + K * r * r; } } }
     const distT = dijkstraSeeds(m, seeds, cost, pass, seenS);
     for (const c of rN[R.pos]) if (c === target && !freshPos.includes(c) && (!dRaw || dRaw[c] > 1 || (m.isExit[c] && all))) { R.mode = '돌파'; return c; }
@@ -1298,7 +1463,7 @@
     const gd = game.giants.filter((G) => G.out <= 0).map((G) => bfsC(m, G.pos, 2));
     let best = -1, bs = -Infinity;
     for (const c of m.floor) {
-      if (d[c] < CFG.TELE_MIN || d[c] > CFG.TELE_MAX || m.lvl[c] !== fl || m.g[c] !== 0 || m.isExit[c] || m.stairOf[c] >= 0 || (m.nearDoor && m.nearDoor[c])) continue;
+      if (d[c] < CFG.TELE_MIN || d[c] > CFG.TELE_MAX || m.lvl[c] !== fl || m.g[c] !== 0 || m.isExit[c] || m.stairOf[c] >= 0 || (m.linkAt && m.linkAt.has(c)) || (m.isSafe && m.isSafe[c]) || (m.nearDoor && m.nearDoor[c])) continue;
       if (game.giantAt(c) >= 0 || (game.dinoHits && game.dinoHits(c)) || game.snakes.some((S) => S.hidden <= 0 && S.body.includes(c))) continue;
       const gmin = gd.length ? Math.min(...gd.map((x) => x[c])) : 99;
       if (gmin < 4) continue;
@@ -1358,11 +1523,18 @@
         tk = -1;
       }
       if (tk >= 0) {
-        const G = game.giants[tk]; G.stun = secTurns(CFG.STUN_SEC); G.saw = false; G.dashLeft = 0; G.track = 0; inv.shotgun--; R.used++;
+        const G = game.giants[tk]; G.hp = (G.hp ?? CFG.GIANT_HP) - 1; inv.shotgun--; R.used++;
         game.fx.push({ t: 'shot', from: R.pos, to: G.pos, giant: tk, turn: game.turn });
+        if (G.hp <= 0) { // v26: 2대째 — 쓰러졌다가 리스폰 방에서 부활
+          game.knockOut(tk); G.out = secTurns(CFG.SHOT_KO_SEC); G.outBy = 'shotgun'; game.shotKOs = (game.shotKOs || 0) + 1;
+          game.fx.push({ t: 'shotKO', cell: G.pos, giant: tk, turn: game.turn });
+          game.log('shotKO', `💥 거인${tk + 1}이 샷건 2대를 맞고 쓰러졌다! (${CFG.SHOT_KO_SEC}초 뒤 리스폰 방에서 부활) · 샷건 ${inv.shotgun}/${CFG.SHOTGUN_AMMO}`);
+          return;
+        }
+        G.stun = secTurns(CFG.STUN_SEC); G.saw = false; G.dashLeft = 0; G.track = 0;
         // v16: 총소리 — 근처(미로 거리 SHOT_NOISE 이내) 다른 거인들이 도망자 위치를 알아챔
         if (CFG.SHOT_NOISE > 0) { const dn = bfsC(m, R.pos, 2), heard = []; for (const H of game.giants) if (H.id !== tk && H.stun <= 0 && H.out <= 0 && dn[H.pos] <= CFG.SHOT_NOISE) { H.know = R.pos; H.knowTurn = game.turn; heard.push(H.id + 1); } if (heard.length) game.log('call', `총소리를 들은 거인${heard.join('·')}이 몰려온다! 👂`); }
-        game.log('shot', `도망자가 샷건을 쐈다! 🔫 거인${tk + 1} ${CFG.STUN_SEC}초 기절 · 샷건 ${inv.shotgun}/${CFG.SHOTGUN_AMMO}${inv.shotgun < CFG.SHOTGUN_AMMO ? ` (장전 ${CFG.SHOTGUN_RELOAD_SEC}초)` : ''}`);
+        game.log('shot', `도망자가 샷건을 쐈다! 🔫 거인${tk + 1} ${CFG.STUN_SEC}초 기절 (체력 ${G.hp}/${CFG.GIANT_HP}) · 샷건 ${inv.shotgun}/${CFG.SHOTGUN_AMMO}${inv.shotgun < CFG.SHOTGUN_AMMO ? ` (장전 ${CFG.SHOTGUN_RELOAD_SEC}초)` : ''}`);
       }
     }
     // v19 뷱 사격: 뷱이 위험할 만큼 먹었고 거인을 노리고 있으면 샷건으로 뷱을 기절시킴
@@ -1477,7 +1649,7 @@
     // 부활 지점 매복: 곧 부활할 거인의 출발점 근처(안전 거리 바로 밖)에서 기다림
     if (!calm && sg.sCamp > 0.15) {
       let best = -1, bd = Infinity;
-      for (const G of game.giants) { if (G.out <= 0 || G.out > 8 + sg.sCamp * 45) continue; const c = m.giantStarts[G.id], d = dH[c]; if (d < bd) { bd = d; best = c; } }
+      for (const G of game.giants) { if (G.out <= 0 || G.out > 8 + sg.sCamp * 45) continue; const c = m.roomOut >= 0 ? m.roomOut : m.giantStarts[G.id], d = dH[c]; if (d < bd) { bd = d; best = c; } }
       if (best >= 0 && bd < 999) { S.mode = '부활 매복'; if (bd <= CFG.SNAKE_SPAWN_SAFE + 1) return { wait: true, dH }; return { tgt: best, prey: -1, pd: 999, dH }; }
     }
     // 알약: '알약 욕심'만큼 먼 곳까지
@@ -1494,11 +1666,11 @@
       S.patrol = -1;
       // 층 이동: 다른 층에 활동 중인 거인이 더 많으면 계단으로
       if (m.stairs && m.stairs.length && game.rng() < sg.sFloor) {
-        const cnt = [0, 0]; for (const G of game.giants) if (G.out <= 0) cnt[floorOf(m, G.pos)]++;
+        const cnt = [0, 0, 0]; for (const G of game.giants) if (G.out <= 0) cnt[floorOf(m, G.pos)]++;
         const f = floorOf(m, head);
         if (cnt[1 - f] > cnt[f]) { let st = -1; for (const [a, b] of m.stairs) for (const c of [a, b]) if (floorOf(m, c) !== f && dH[c] < 999 && (st < 0 || dH[c] < dH[st])) st = c; if (st >= 0) S.patrol = st; }
       }
-      if (S.patrol < 0) { const c = m.floor.filter((i) => dH[i] < 999 && dH[i] >= 4); S.patrol = c.length ? c[Math.floor(game.rng() * c.length)] : head; }
+      if (S.patrol < 0) { const deep = m.B1 >= 0 && CFG.SNAKE_B1 && game.rng() < (sg.sDeep ?? 0.3) * 0.4; const c = m.floor.filter((i) => dH[i] < 999 && dH[i] >= 4 && ((m.lvl[i] === m.B1) === deep)); const c2 = c.length ? c : m.floor.filter((i) => dH[i] < 999 && dH[i] >= 4 && m.lvl[i] !== m.B1); S.patrol = c2.length ? c2[Math.floor(game.rng() * c2.length)] : head; } // v26 '지하 사냥' 유전자만큼 지하 순찰
     }
     return { tgt: S.patrol, prey: -1, pd: 999, dH };
   }
@@ -1594,7 +1766,8 @@
   function giantMoves(game, k, from) {
     const m = game.map, G = game.giants[k];
     const sb = game.snakes.length ? game.snakeBody() : null;
-    let list = m.gNbrs[from].filter((c) => game.giantAt(c) < 0 && !(sb && sb.has(c)) && !game.snakeAtHead(c) && !game.dinoHits(c)); // 동료·뷱 몸통·공룡이 있는 칸은 못 감
+    const lkF = m.linkAt && m.linkAt.get(from), gl = game.gg[k] || {};
+    let list = m.gNbrs[from].filter((c) => game.giantAt(c) < 0 && !(sb && sb.has(c)) && !game.snakeAtHead(c) && !game.dinoHits(c) && !(game.runner.lift > 0 && c === game.runner.pos) && !(lkF && lkF.kind === 'elev' && lkF.cells.includes(c) && game.rng() > 0.15 + 0.85 * (gl.gLift ?? 0.5))); // 동료·뷱 몸통·공룡이 있는 칸은 못 감
     if (G.doorBan > 0) {
       if (m.nearDoor[from]) { const out = list.filter((c) => !m.nearDoor[c]); return out.length ? out : list; }
       list = list.filter((c) => !m.nearDoor[c]);
@@ -2029,12 +2202,12 @@
     recordVisible(result, catcher, opts) {
       const c = this.giant.catches || (this.giant.catches = new Array(this.giantCount).fill(0));
       if (result === 'giant' && catcher >= 0 && catcher < this.giantCount) c[catcher] = (c[catcher] || 0) + 1;
-      // v25: 번개창에 처치된 거인은 다음 판에서도 사라짐 (최소 GIANTS명) · 거인 LOSSES_PER_DROP연승이면 거인 -1
+      // v26: 번개창으로 거인을 처치한 판이면 다음 판 거인 -1 (몇 명을 처치했든 판마다 1명만, 최소 GIANTS명) · 거인 LOSSES_PER_DROP연승이면 거인 -1
       this.lastChange = { slainRemoved: 0, streakRemoved: 0, added: [] };
       const slain = (opts && opts.slain) || [];
       if (slain.length) {
         const rm = [...new Set(slain)].filter((k) => k >= 0 && k < this.giantCount).sort((a, b) => b - a);
-        for (const k of rm) { if (this.giantCount <= CFG.GIANTS) break; this.removeGiant(k); this.lastChange.slainRemoved++; }
+        for (const k of rm.slice(0, 1)) { if (this.giantCount <= CFG.GIANTS) break; this.removeGiant(k); this.lastChange.slainRemoved++; }
       }
       if (result === 'giant') this.giantStreak = (this.giantStreak || 0) + 1;
       else if (result === 'runner') this.giantStreak = 0;
@@ -2140,7 +2313,7 @@
       // 예전 저장(새 유전자 없음): 빠진 유전자는 기본값으로 채움 (진화한 값은 그대로)
       if (this.runner && this.runner.genes) this.runner.genes = Object.assign(defaultRunner(), this.runner.genes);
       // v21: 거인 팀에 새 유전자(지하 수색·공룡 피하기)가 없으면 기본값으로 채움
-      this.giant.team = this.giant.team.map((gg) => Object.assign({ deepPatrol: 0.2, dinoDodge: 0.5, rockUse: 0.4, rockDoor: 0.4, rockSeek: 0.4 }, gg)); // v22: 바위 유전자
+      this.giant.team = this.giant.team.map((gg) => Object.assign({ deepPatrol: 0.2, dinoDodge: 0.5, rockUse: 0.4, rockDoor: 0.4, rockSeek: 0.4, gLift: 0.5 }, gg)); // v22: 바위 유전자
       // v19: 뷱 두뇌 (예전 저장본에는 없음 → Lv.1 기본 뷱으로 시작, 도망자·거인 기록은 그대로)
       this.snake = o.snake && o.snake.genes ? { level: o.snake.level || 1, sigma: o.snake.sigma || 0.12, genes: Object.assign(defaultSnake(), o.snake.genes) } : { genes: defaultSnake(), level: 1, sigma: 0.12 };
       this.lastSnakeRate = o.lastSnakeRate || 0;

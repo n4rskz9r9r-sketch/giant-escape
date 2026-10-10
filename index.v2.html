@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>거인과 도망자 — AI 대결 · 공진화</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👹</text></svg>">
+<link rel="stylesheet" href="css/style.css?v=2">
+</head>
+<body>
+<header>
+  <h1>👹 거인과 도망자 🏃</h1>
+  <p class="sub">두 AI가 서로 싸우며 함께 성장합니다 — 도망자는 열쇠 2개를 모아 문 A·B 중 하나로 탈출, 거인은 잡아먹기 (거인은 문에 못 들어가고 앞쪽만 봅니다)</p>
+</header>
+
+<main>
+  <section class="stage card">
+    <div class="statusbar">
+      <span>🧬 <b id="st-gen">0</b>세대</span>
+      <span>⏱ 턴 <b id="st-turn">0</b>/<span id="st-max">0</span></span>
+      <span>🔑 <b id="st-keys">0/0</b></span>
+      <span>📏 거리 <b id="st-dist">-</b></span>
+      <span>🏃 <b id="st-rmode">-</b></span>
+      <span>👹 <b id="st-gmode">-</b></span>
+      <span>💨 <b id="st-dash">준비</b></span>
+    </div>
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="board"></canvas>
+      <div class="overlay hidden" id="overlay"><div id="overlayText"></div><div id="overlaySub"></div></div>
+      <div class="overlay hidden train" id="trainOverlay">
+        <div>⚡ 빠른 훈련 중…</div>
+        <div class="progress"><div id="trainBar"></div></div>
+        <div id="trainText"></div>
+      </div>
+    </div>
+    <div class="controls">
+      <button id="btnPlay" class="primary">▶ 시작</button>
+      <button id="btnRestart">↺ 다시</button>
+      <button id="btnNewMap">🗺 새 맵</button>
+      <label class="slider">속도 <input type="range" id="speed" min="1" max="40" value="8"><span id="speedVal">8</span>턴/초</label>
+      <label class="chk"><input type="checkbox" id="autoNext" checked> 자동 다음 판</label>
+      <label class="chk"><input type="checkbox" id="showVision" checked> 시야 표시</label>
+    </div>
+  </section>
+
+  <aside class="side">
+    <section class="card score">
+      <div class="team runner"><div class="emoji">🏃</div><div>도망자 승</div><b id="sc-runner">0</b></div>
+      <div class="team draw"><div class="emoji">⏳</div><div>무승부</div><b id="sc-draw">0</b></div>
+      <div class="team giant"><div class="emoji">👹</div><div>거인 승</div><b id="sc-giant">0</b></div>
+      <div class="scoreline" id="sc-train">훈련 경기 0판</div>
+    </section>
+
+    <section class="card train-ctl">
+      <h2>🧠 학습</h2>
+      <div class="row">
+        <button id="btnTrain" class="primary">⚡ 빠른 훈련</button>
+        <select id="trainGens">
+          <option value="10">10세대 (약 200판)</option>
+          <option value="30" selected>30세대 (약 600판)</option>
+          <option value="100">100세대 (약 2,000판)</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="btnSave">💾 두뇌 저장</button>
+        <button id="btnLoad">📂 불러오기</button>
+        <button id="btnResetBrain" class="danger">🧹 초기화</button>
+      </div>
+      <p class="hint">매 판이 끝나면 두 AI가 한 세대(16~24판)씩 훈련합니다. 챔피언과 변이된 도전자들이 같은 맵에서 겨루고 더 잘한 두뇌가 살아남습니다. 지고 있는 쪽은 도전자를 2명 내보내고 더 크게 변이해 상대 전략에 빨리 적응합니다.</p>
+    </section>
+
+    <section class="card brains">
+      <div class="brain runner">
+        <h3>🏃 도망자 <span class="lv">Lv.<b id="lv-runner">1</b></span></h3>
+        <div id="genes-runner" class="genes"></div>
+      </div>
+      <div class="brain giant">
+        <h3>👹 거인 <span class="lv">Lv.<b id="lv-giant">1</b></span></h3>
+        <div id="genes-giant" class="genes"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>📈 세대별 승률</h2>
+      <canvas id="chart"></canvas>
+      <div class="legend"><span class="lr">━ 도망자</span><span class="lg">━ 거인</span><span class="lm">┅ 50%</span></div>
+    </section>
+
+    <section class="card">
+      <h2>📢 실시간 중계</h2>
+      <ul id="log" class="log"></ul>
+    </section>
+  </aside>
+</main>
+<footer>오프라인에서도 동작합니다 · 학습 결과는 이 브라우저(localStorage)에 저장됩니다</footer>
+<script src="js/engine.js?v=2"></script>
+<script src="js/ui.js?v=2"></script>
+</body>
+</html>

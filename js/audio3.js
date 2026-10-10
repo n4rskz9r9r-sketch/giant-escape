@@ -139,7 +139,7 @@
     E.setIntensity = (v) => { E.target = Math.max(0, Math.min(1, v)); };
 
     // ---------- SFX ----------
-    const MIN_GAP = { scout: 1, teleport: 1, slayAll: 3, shot: 0.12, miss: 0.12, stun: 0.25, smash: 0.35, vault: 0.2, key: 0.2, door: 1, win: 2, caught: 2, gulp: 0.4, item: 0.12, respawn: 0.4, grow: 2, snakeWin: 2, block: 0.3, roar: 0.8, barricade: 0.25, mission: 0.2, cloak: 0.4, boost: 0.4, smoke: 0.4, dinoRoar: 1.5, dinoBite: 0.8, stomp: 0.35, weapon: 1.5, slay: 0.4, hatch: 0.5, rock: 0.3, rockBlock: 1, sniff: 1.2 };
+    const MIN_GAP = { elev: 1, vent: 0.8, safe: 1.5, mapFound: 2, gate: 1.2, scout: 1, teleport: 1, slayAll: 3, shot: 0.12, miss: 0.12, stun: 0.25, smash: 0.35, vault: 0.2, key: 0.2, door: 1, win: 2, caught: 2, gulp: 0.4, item: 0.12, respawn: 0.4, grow: 2, snakeWin: 2, block: 0.3, roar: 0.8, barricade: 0.25, mission: 0.2, cloak: 0.4, boost: 0.4, smoke: 0.4, dinoRoar: 1.5, dinoBite: 0.8, stomp: 0.35, weapon: 1.5, slay: 0.4, hatch: 0.5, rock: 0.3, rockBlock: 1, sniff: 1.2 };
     const lastAt = {};
     const F = {
       // v21 지하: 공룡 포효(낮게 갈라지는 울음) · 공룡 발소리(쿵) · 공룡 물기 · 전설의 무기 줍기(반짝 상승 화음) · 번개창 처치(번개+천둥) · 해치(나무 삐걱)
@@ -166,6 +166,11 @@
       // v25 순간이동: 반짝이는 상승음 + 펑
       // v25 길 찾는 분신: 휙 + 발소리 세 번
       scout(t) { noise(t, 0.3, 0.09, sfxBus, { type: 'bandpass', f: 800, to: 2600, q: 1.5, a: 0.02 }); [0.12, 0.24, 0.36].forEach((d) => noise(t + d, 0.05, 0.06, sfxBus, { type: 'lowpass', f: 900, a: 0.003 })); },
+      mapFound(t) { noise(t, 0.25, 0.12, sfxBus, { type: 'bandpass', f: 3000, a: 0.01 }); [67, 72, 76, 79].forEach((n, i) => osc('triangle', 440 * Math.pow(2, (n - 69) / 12), t + 0.12 + i * 0.07, 0.25, 0.06, sfxBus, { a: 0.005, r: 0.1 })); },
+      elev(t) { [1047, 1319].forEach((f, i) => osc('sine', f, t + i * 0.18, 0.35, 0.07, sfxBus, { a: 0.005, r: 0.2 })); },
+      vent(t) { noise(t, 0.35, 0.1, sfxBus, { type: 'bandpass', f: 900, a: 0.02 }); },
+      safe(t) { osc('triangle', 523, t, 0.25, 0.06, sfxBus, { to: 784, glide: 0.2, a: 0.01, r: 0.1 }); },
+      gate(t) { osc('sawtooth', 110, t, 0.45, 0.06, sfxBus, { to: 70, glide: 0.4, a: 0.02, r: 0.1 }); osc('square', 55, t + 0.05, 0.4, 0.04, sfxBus, { a: 0.02, r: 0.1 }); },
       teleport(t) { osc('sine', 300, t, 0.3, 0.09, sfxBus, { to: 1800, glide: 0.25, a: 0.01, r: 0.08 }); [1568, 2093, 2637].forEach((f, i) => osc('triangle', f, t + 0.18 + i * 0.05, 0.18, 0.05, sfxBus, { a: 0.005, r: 0.1 })); noise(t + 0.15, 0.2, 0.06, sfxBus, { type: 'highpass', f: 3000, a: 0.005 }); },
       slayAll(t) { noise(t, 0.35, 0.18, sfxBus, { type: 'highpass', f: 2500, a: 0.002 }); [[67, 0], [72, 0.14], [76, 0.28], [79, 0.42], [84, 0.6]].forEach(([n, d]) => osc('sawtooth', mtof(n), t + 0.1 + d, 0.22, 0.09, sfxBus, { a: 0.01, s: 0.7, r: 0.1, lp: 2600 })); [72, 76, 79, 84].forEach((n) => osc('triangle', mtof(n), t + 0.95, 1.4, 0.07, sfxBus, { a: 0.02, s: 0.8, r: 0.6, lp: 3200 })); },
       win(t) { const seq = [[60, 0], [64, 0.12], [67, 0.24], [72, 0.36]]; seq.forEach(([n, d]) => osc('triangle', mtof(n), t + d, 0.16, 0.14, sfxBus, { a: 0.004, s: 0.6, r: 0.08, lp: 3000 }));

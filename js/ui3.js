@@ -64,11 +64,11 @@
     return {
       t,
       dinos: (g.dinos || []).map((D) => { const [x, y] = lerpPath(D.path, t); return { x, y, fx: D.facing[0], fy: D.facing[1], chase: D.mode === '돌격', sniff: D.mode === '냄새 추적', moving: D.path.length > 1 }; }),
-      weapon: g.weapon,
+      weapon: g.weapon, mapItem: g.mapItem, hasMap: !!g.runner.hasMap,
       scouts: (g.scouts || []).map((S) => { const [x, y, f, lv] = lerpPath(S.path, t); return { x, y, f, lv, dx: 0 }; }),
       boulders: g.boulders ? g.boulders.map((B) => ({ cell: B.carried >= 0 ? g.giants[B.carried].pos : B.cell, blocked: !B.gone && B.carried < 0 && !!g.blockInfo(B.cell), push: B.by >= 0, carried: B.carried >= 0, gone: !!B.gone })) : [],
       runner: { x: rx, y: ry, f: rf, lv: rl, dx: bx - ax, dy: by - ay, sprint: g.runner.sprintLeft > 0, boost: g.runner.boost > 0, cloak: g.runner.cloak > 0, hasKey: g.keysHeld > 0, gem: g.runner.gem >= 0, onPlate: plateIdx, jump },
-      giants: g.giants.map((G) => { const [x, y, f, lv] = lerpPath(G.path, t); return { x, y, f, lv, dead: !!G.dead, fx: G.facing[0], fy: G.facing[1], dash: G.dashLeft > 0 || G.path.length > 2, ban: G.doorBan > 0 || G.keyBan > 0, smashReady: G.smashCd <= 0, stun: G.stun > 0, blind: G.blind > 0, track: G.track > 0, out: G.out > 0, outSec: Math.ceil(G.out / tpsNow()), home: (() => { const h = g.map.giantStarts[G.id], [hx, hy, hf, hl] = xyf(h); return { x: hx, y: hy, f: hf, lv: hl }; })() }; }),
+      giants: g.giants.map((G) => { const [x, y, f, lv] = lerpPath(G.path, t); return { x, y, f, lv, dead: !!G.dead, fx: G.facing[0], fy: G.facing[1], dash: G.dashLeft > 0 || G.path.length > 2, ban: G.doorBan > 0 || G.keyBan > 0, smashReady: G.smashCd <= 0, stun: G.stun > 0, blind: G.blind > 0, track: G.track > 0, out: G.out > 0, outSec: Math.ceil(G.out / tpsNow()), hp: G.hp ?? GE.CFG.GIANT_HP, home: (() => { const h = g.map.roomCells && g.map.roomCells.length ? g.map.roomCells[0] : g.map.giantStarts[G.id], [hx, hy, hf, hl] = xyf(h); return { x: hx, y: hy, f: hf, lv: hl }; })() }; }),
       snakes: g.snakes.map((S) => ({ f: S.floor, hidden: S.hidden > 0, stun: S.stun > 0, len: S.body.length, segs: S.body.map((c, j) => { const a = S.prevBody[Math.min(j, S.prevBody.length - 1)], [x0, y0, f0] = xyf(a), [x1, y1, f1] = xyf(c); return Math.abs(x1 - x0) + Math.abs(y1 - y0) > 1.5 ? { x: x1, y: y1, f: f1 } : { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t, f: f0 + (f1 - f0) * t }; }) })),
     };
   }
@@ -128,8 +128,16 @@
       c.lineWidth = 3; c.strokeStyle = '#000'; c.strokeText(m.exitNames[k], (x + .5) * T, (y + .5) * T); c.fillStyle = '#fff'; c.fillText(m.exitNames[k], (x + .5) * T, (y + .5) * T);
     });
     // v21 해치 (1층 🕳️ ↔ 지하 🪜)
+    for (const l of m.links || []) for (const lc of l.cells) { if (!on(lc) || !vis(lc)) continue; const [px, py] = at(lc); c.fillStyle = l.kind === 'elev' ? 'rgba(255,176,32,.6)' : l.kind === 'vent' ? 'rgba(127,216,255,.55)' : 'rgba(200,154,90,.6)'; c.fillRect(px - T / 2, py - T / 2, T, T); if (!mini) emoji(c, l.kind === 'elev' ? '🛗' : l.kind === 'vent' ? '🌀' : '⛏️', px, py, T * 0.75); } // v26 통로
+    for (const sc of m.safeCells || []) { if (!on(sc) || !vis(sc)) continue; const [px, py] = at(sc); c.fillStyle = 'rgba(64,255,144,.55)'; c.fillRect(px - T / 2, py - T / 2, T, T); if (!mini) emoji(c, '🛡️', px, py, T * 0.75); }
+    if (m.roomCells && m.roomGate >= 0 && on(m.roomGate)) { // v26 리스폰 방 (항상 표시)
+      c.fillStyle = 'rgba(255,40,40,.32)'; for (const rc of [...m.roomCells, m.roomGate]) { const [px, py] = at(rc); c.fillRect(px - T / 2, py - T / 2, T, T); }
+      const [gx, gy] = at(m.roomGate); c.strokeStyle = '#ff3030'; c.lineWidth = Math.max(2, T * 0.18); c.strokeRect(gx - T / 2, gy - T / 2, T, T);
+      if (!mini) emoji(c, '👹', gx, gy, T * 0.7);
+    }
     for (const pair of m.hatches || []) for (const st of pair) { if (!vis(st)) continue; const [px, py] = at(st); c.fillStyle = 'rgba(200,154,90,.4)'; c.fillRect(px - T / 2, py - T / 2, T, T); if (mini) { c.fillStyle = '#c89a5a'; c.fillRect(px - T * .4, py - T * .4, T * .8, T * .8); } else emoji(c, isB1(flo(st)) ? '🪜' : '🕳️', px, py, T * 0.75); }
     // v21 전설의 무기 (지하, 보이면)
+    if (g.mapItem && !g.mapItem.taken && vis(g.mapItem.cell)) { const [px, py] = at(g.mapItem.cell); c.fillStyle = 'rgba(255,230,140,.45)'; c.beginPath(); c.arc(px, py, T * 0.7, 0, 7); c.fill(); if (!mini) emoji(c, '🗺️', px, py, T * 0.8); else { c.fillStyle = '#ffe68c'; c.fillRect(px - T * .35, py - T * .35, T * .7, T * .7); } }
     if (g.weapon && !g.weapon.taken && vis(g.weapon.cell)) { const [px, py] = at(g.weapon.cell); c.fillStyle = 'rgba(127,216,255,.35)'; c.beginPath(); c.arc(px, py, T * (0.7 + 0.15 * Math.sin(now / 200)), 0, 7); c.fill(); if (mini) { c.fillStyle = '#ffd24a'; c.fillRect(px - T * .45, py - T * .45, T * .9, T * .9); } else emoji(c, '🔱', px, py, T * 0.85); }
     // 계단
     for (const pair of m.stairs || []) for (const st of pair) { if (!vis(st)) continue; const [px, py] = at(st); c.fillStyle = 'rgba(89,227,154,.35)'; c.fillRect(px - T / 2, py - T / 2, T, T); if (mini) { c.fillStyle = '#59e39a'; c.fillRect(px - T * .35, py - T * .35, T * .7, T * .7); } else emoji(c, flo(st) === 0 ? '🪜' : '⬇️', px, py, T * 0.7); }
@@ -365,11 +373,11 @@
     app.nearD = d;
     $('st-dist').textContent = d >= 999 ? '문 안 (안전)' : d + '칸';
     $('st-rmode').textContent = g.runner.mode + (g.runner.sprintLeft > 0 ? ' ⚡' : '') + (g.runner.boost > 0 ? ' 🚀' : '') + (g.runner.cloak > 0 ? ' 👻' : '') + invText(g.runner.inv, ' ');
-    $('st-floor').textContent = floorName(flo(g.runner.pos)) + (g.weapon ? (g.weapon.taken ? ' · 🔱 ∞' : '') : '') + (g.dinos && g.dinos.length && isB1(flo(g.runner.pos)) ? ` · 🦖 ${nearDino(g).mode}` : '') + (g.sealed ? ' · 🚫 출구 봉쇄' : '');
+    $('st-floor').textContent = floorName(flo(g.runner.pos)) + (g.weapon ? (g.weapon.taken ? ' · 🔱 ∞' : '') : '') + (g.runner.hasMap ? ' · 🗺️' : '') + (g.dinos && g.dinos.length && isB1(flo(g.runner.pos)) ? ` · 🦖 ${nearDino(g).mode}` : '') + (g.sealed ? ' · 🚫 출구 봉쇄' : '');
     { const gbox = $('genes-giant'), compact = g.giants.length > 6; g.giants.forEach((G, k) => { const el = gbox.querySelector(`[data-cd="${k}"]`); if (!el) return; const sec = Math.ceil(G.smashCd / tpsNow()); el.textContent = G.smashCd <= 0 ? (compact ? '✓' : '준비') : `${sec}${compact ? '' : '초'}`; el.classList.toggle('ready', G.smashCd <= 0); el.title = `거인${k + 1} ${G.smashCd <= 0 ? '벽부수기 준비' : '벽부수기 ' + sec + '초 남음'}`; }); }
     $('st-mission').textContent = g.missionText();
     $('st-snake').textContent = `뷱 ${g.snakeAte.giants}/${SW()} · ` + g.snakes.map((S) => `${S.floor + 1}F ${S.hidden > 0 ? '숨음' : S.mode}(${S.body.length})`).join(' · ');
-    $('st-gmode').textContent = g.giants.map((G, k) => `${k + 1}:${G.dead ? '☠️처치됨' : G.out > 0 ? `${G.outBy === 'dino' ? '🦖기절' : '🐍배 속'} ${Math.ceil(G.out / tpsNow())}초` : G.stun > 0 ? '기절💫' : (G.mode + (isB1(flo(G.pos)) ? '⁻' : flo(G.pos) ? '²' : ''))}${G.dashLeft > 0 ? '💨' : ''}${G.doorBan > 0 || G.keyBan > 0 ? '✨' : ''}${G.smashCd <= 0 ? '💥' : ''}${G.blind > 0 ? '🌫️' : ''}${G.track > 0 ? '🐾' : ''}${G.inv.roar ? '🔊' : ''}${G.inv.tracker ? '🐾' : ''}${G.inv.barricade ? '🚧' : ''}`).join(' ');
+    $('st-gmode').textContent = g.giants.map((G, k) => `${k + 1}${G.dead || G.out > 0 ? '' : (G.hp ?? 2) < GE.CFG.GIANT_HP ? '♥♡' : '♥♥'}:${G.dead ? '☠️처치됨' : G.out > 0 ? `${G.outBy === 'dino' ? '🦖기절' : G.outBy === 'shotgun' ? '💥쓰러짐' : '🐍배 속'} ${Math.ceil(G.out / tpsNow())}초` : G.stun > 0 ? '기절💫' : (G.mode + (isB1(flo(G.pos)) ? '⁻' : flo(G.pos) ? '²' : ''))}${G.dashLeft > 0 ? '💨' : ''}${G.doorBan > 0 || G.keyBan > 0 ? '✨' : ''}${G.smashCd <= 0 ? '💥' : ''}${G.blind > 0 ? '🌫️' : ''}${G.track > 0 ? '🐾' : ''}${G.inv.roar ? '🔊' : ''}${G.inv.tracker ? '🐾' : ''}${G.inv.barricade ? '🚧' : ''}`).join(' ');
     let sc = 0; const sn = g.runner.seen; for (let i = 0; i < sn.length; i++) sc += sn[i]; if (sc !== app.seenCount) { app.seenCount = sc; app.seenVer = (app.seenVer || 0) + 1; }
     const set = new Set();
     g.giants.forEach((G, k) => { if (G.out > 0) return; for (const i of g.map.floor) if (GE.giantSees(g, k, i)) set.add(i); });
@@ -422,6 +430,11 @@
       else if (e.t === 'eat' && e.giant >= 0) SND('gulp');
       else if (e.t === 'pickup') SND('item');
       else if (e.t === 'respawn') SND('respawn');
+      else if (e.t === 'roomExit') SND('gate');
+      else if (e.t === 'shotKO') SND('slay');
+      else if (e.t === 'mapFound') SND('mapFound');
+      else if (e.t === 'link') SND(e.kind === 'elev' ? 'elev' : 'vent');
+      else if (e.t === 'safeIn') SND('safe');
       else if (e.t === 'roar') SND('roar');
       else if (e.t === 'smoke' || e.t === 'cloak' || e.t === 'boost') SND(e.t);
       else if (e.t === 'lever' || e.t === 'gem' || e.t === 'pedestal') SND('mission');
@@ -464,7 +477,7 @@
     { // v25: 거인 수 변화 알림 (번개창 처치 → 다음 판에서도 사라짐 · 거인 연승 → 1명 쉼)
       const lc = trainer.lastChange || {};
       const say = (msg) => { log(msg, 'grow'); fpvToast(msg, 'grow'); };
-      if (slainIds.length) say(lc.slainRemoved ? `⚡ 번개창에 쓰러진 거인 ${lc.slainRemoved}명은 다음 판에도 없다 — 다음 판은 거인 ${trainer.giantCount}명으로 시작` : `⚡ 거인 ${slainIds.length}명 처치 — 하지만 거인은 최소 ${GE.CFG.GIANTS}명이라 다음 판도 ${trainer.giantCount}명`);
+      if (slainIds.length) say(lc.slainRemoved ? `⚡ 거인 ${slainIds.length}명 처치 — 번개창 보상으로 다음 판은 거인 1명 줄어 ${trainer.giantCount}명` : `⚡ 거인 ${slainIds.length}명 처치 — 하지만 거인은 최소 ${GE.CFG.GIANTS}명이라 다음 판도 ${trainer.giantCount}명`);
       if (lc.streakRemoved) say(`👹 거인 ${GE.CFG.LOSSES_PER_DROP}연승! 거인 한 명이 쉬러 간다 — 다음 판은 거인 ${trainer.giantCount}명 (균형 조절)`);
       if (lc.slainRemoved || lc.streakRemoved) { renderGenes(); saveQuiet(); }
       app.nextNote = lc.slainRemoved || lc.streakRemoved || (lc.added && lc.added.length) ? ` · 다음 판 거인 ${trainer.giantCount}명` : '';
@@ -722,7 +735,7 @@
   function hudStatus() {
     const g = app.game; if (!hud || !g) return;
     const d = app.nearD ?? 999;
-    { const fl = flo(g.runner.pos), el = $('h-floor'); if (el) { el.textContent = (isB1(fl) ? '⛏️ ' : '🏢 ') + floorTag(fl) + (g.runner.inv.slayer > 0 ? ' · 🔱∞' : '') + (GE.CFG.TELE_CD > 0 ? (g.runner.teleCd > 0 ? ` · ✨${Math.ceil(g.runner.teleCd / 10)}s` : ' · ✨✓') : '') + (GE.CFG.SCOUT_CD > 0 ? (g.scouts && g.scouts.length ? ' · 👥!' : g.runner.scoutCd > 0 ? ` · 👥${Math.ceil(g.runner.scoutCd / 10)}s` : ' · 👥✓') : ''); el.classList.toggle('b1', isB1(fl)); el.classList.toggle('armed', g.runner.inv.slayer > 0); } }
+    { const fl = flo(g.runner.pos), el = $('h-floor'); if (el) { el.textContent = (isB1(fl) ? '⛏️ ' : '🏢 ') + floorTag(fl) + (g.runner.inv.slayer > 0 ? ' · 🔱∞' : '') + (g.runner.hasMap ? ' · 🗺️' : '') + (g.runner.lift > 0 ? ' · 🛗' : '') + (g.map.isSafe && g.map.isSafe[g.runner.pos] ? ` · 🛡️${Math.max(0, Math.ceil((GE.CFG.SAFE_MAX_SEC * 10 - (g.runner.safeT || 0)) / 10))}s` : g.runner.safeCd > 0 ? ` · 🛡️${Math.ceil(g.runner.safeCd / 10)}s` : '') + (GE.CFG.TELE_CD > 0 ? (g.runner.teleCd > 0 ? ` · ✨${Math.ceil(g.runner.teleCd / 10)}s` : ' · ✨✓') : '') + (GE.CFG.SCOUT_CD > 0 ? (g.scouts && g.scouts.length ? ' · 👥!' : g.runner.scoutCd > 0 ? ` · 👥${Math.ceil(g.runner.scoutCd / 10)}s` : ' · 👥✓') : ''); el.classList.toggle('b1', isB1(fl)); el.classList.toggle('armed', g.runner.inv.slayer > 0); } }
     $('h-status').textContent = `🏢 ${floorName(flo(g.runner.pos))} · 🧩 ${g.missionText()} · 🐍 뷱 ${g.snakeAte.giants}/${SW()} · ⏱ 턴 ${g.turn} · 🔑 ${g.keysHeld}/${app.map.keys.length}${g.keysLeft.length ? '' : ' 문 열림!'} · 📏 거인까지 ${d >= 999 ? '-' : d + '칸'} · 🏃 ${g.runner.mode}${g.runner.sprintLeft > 0 ? ' ⚡' : ''}${g.runner.boost > 0 ? ' 🚀' : ''}${g.runner.cloak > 0 ? ' 👻' : ''}${invText(g.runner.inv, ' · 🎒 ', true)}${g.giants.some((G) => G.stun > 0) ? ' · 💫 기절 ' + g.giants.filter((G) => G.stun > 0).map((G) => G.id + 1).join('·') : ''}`;
   }
   function hudAmmo() {

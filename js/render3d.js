@@ -88,7 +88,7 @@ const LZ = (f) => (map && map.levels && map.levels[f] ? map.levels[f].lz : f);
 const fy = (c) => LZ(cellF(c)) * FLOOR_Y;
 const wzc = (c) => wz(map && map.ay ? map.ay[c] : ((c / W) | 0) % FH);
 const LV = (o) => (o.lv != null ? o.lv : Math.round(o.f || 0));
-let B1 = -1, torchList = [], torchLights = [], torchPts = null, dinoObjs = [], weaponObj = null;
+let B1 = -1, torchList = [], torchLights = [], torchPts = null, dinoObjs = [], weaponObj = null, mapItemObj = null;
 function setAt(o, c, y) { o.position.set(wx(c % W), (y || 0) + fy(c), wzc(c)); }
 
 function labelSprite(text, color, scale) {
@@ -194,6 +194,8 @@ function makeGiant(k) {
   for (let i = 0; i < 4; i++) { const st = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('⭐'), transparent: true, depthWrite: false, fog: false })); st.scale.set(0.34, 0.34, 1); stars.add(st); }
   const status = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🐾', '#59e39a'), transparent: true, depthWrite: false })); status.scale.set(0.5, 0.5, 1); status.position.y = 2.95; status.visible = false; g.add(status);
   g.userData.stars = stars; g.userData.status = status;
+  const pips = []; for (let i = 0; i < 2; i++) { const p = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), new THREE.MeshBasicMaterial({ color: 0xff3040, fog: false })); p.position.set((i - 0.5) * 0.24, 2.3, 0); g.add(p); pips.push(p); } // v26 체력 2칸
+  g.userData.pips = pips;
   return g;
 }
 function makeItem(type, side) {
@@ -289,6 +291,25 @@ R3.setMap = function (m) {
   doorZoneMesh = new THREE.InstancedMesh(tileGeo, new THREE.MeshBasicMaterial({ color: 0xffe680, transparent: true, opacity: 0.08, depthWrite: false }), Math.max(1, zone.length));
   zone.forEach((i, k) => { tmpM.makeTranslation(wx(i % W), 0.015 + fy(i), wzc(i)); doorZoneMesh.setMatrixAt(k, tmpM); });
   doorZoneMesh.count = zone.length; mapGroup.add(doorZoneMesh);
+  // v26 거인 전용 리스폰 방: 붉은 바닥 + 빨간 불빛 문
+  if (m.roomCells && m.roomCells.length && m.roomGate >= 0) {
+    const rc = [...m.roomCells, m.roomGate];
+    const rm = new THREE.InstancedMesh(tileGeo, new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0.28, depthWrite: false }), rc.length);
+    rc.forEach((i, k) => { tmpM.makeTranslation(wx(i % W), 0.02 + fy(i), wzc(i)); rm.setMatrixAt(k, tmpM); }); mapGroup.add(rm);
+    const gate = new THREE.Group(); setAt(gate, m.roomGate, 0); gate.userData.cells = [m.roomGate];
+    const gx = m.roomGate % W, ox = m.roomOut % W, horiz = gx === ox; // 문이 위아래로 열리면 기둥은 좌우
+    const postM = new THREE.MeshStandardMaterial({ color: 0x3a0808, emissive: 0xff2020, emissiveIntensity: 0.9, roughness: 0.4 });
+    for (const sgn of [-1, 1]) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.3, 0.12), postM); p.position.set(horiz ? sgn * 0.44 : 0, 0.65, horiz ? 0 : sgn * 0.44); gate.add(p); }
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(horiz ? 1.0 : 0.12, 0.12, horiz ? 0.12 : 1.0), postM); bar.position.y = 1.3; gate.add(bar);
+    const veil = new THREE.Mesh(new THREE.PlaneGeometry(0.88, 1.2), new THREE.MeshBasicMaterial({ color: 0xff2020, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }));
+    veil.position.y = 0.62; if (!horiz) veil.rotation.y = Math.PI / 2; gate.add(veil);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTex(), color: 0xff2a2a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+    glow.scale.set(2.4, 2.4, 1); glow.position.y = 0.7; gate.add(glow);
+    const lt = new THREE.PointLight(0xff2020, 2.2, 6, 1.5); lt.position.y = 1.1; gate.add(lt);
+    const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('👹', '#ff3030'), transparent: true, depthWrite: false })); lab.scale.set(0.5, 0.5, 1); lab.position.y = 1.3; gate.add(lab); gate.userData.label = lab;
+    mapGroup.add(gate); stairObjs.push(gate);
+    const rmG = new THREE.Group(); rmG.userData.cells = [m.roomGate]; rmG.add(rm); mapGroup.add(rmG); stairObjs.push(rmG);
+  }
   // 거인 시야 타일
   visionMesh = new THREE.InstancedMesh(tileGeo, new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.22, depthWrite: false }), W * H);
   visionMesh.count = 0; visionMesh.frustumCulled = false; mapGroup.add(visionMesh); lastVisionVer = -1;
@@ -322,6 +343,35 @@ R3.setMap = function (m) {
     const bot = makeHatch(true); setAt(bot, b2, 0); bot.userData.cells = [b2]; mapGroup.add(bot); stairObjs.push(bot);
   }
   if (B1 >= 0) buildUnderground(m, LVS[B1]);
+  // v26 다른 통로: 엘리베이터(금속 승강기 + 층 표시등) · 환기구(도망자 전용 철망) · 비밀 통로(돌 굴) · 안전 공간(초록 방패)
+  for (const l of (m.links || [])) for (const c of l.cells) {
+    const o = new THREE.Group(); setAt(o, c, 0); o.userData.cells = [c];
+    if (l.kind === 'elev') {
+      const metal = new THREE.MeshStandardMaterial({ color: 0x9aa6b8, metalness: 0.7, roughness: 0.3 });
+      for (const sx of [-1, 1]) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.4, 0.08), metal); p.position.set(sx * 0.42, 0.7, -0.42); o.add(p); const p2 = p.clone(); p2.position.z = 0.42; o.add(p2); }
+      const top = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.08, 0.92), metal); top.position.y = 1.4; o.add(top);
+      const plat = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.05, 0.86), new THREE.MeshStandardMaterial({ color: 0x5a6274, metalness: 0.5, roughness: 0.5 })); plat.position.y = 0.03; o.add(plat);
+      for (const sx of [-1, 1]) { const d = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 1.2), new THREE.MeshStandardMaterial({ color: 0xc8d0dc, metalness: 0.8, roughness: 0.25, transparent: true, opacity: 0.55, side: THREE.DoubleSide })); d.position.set(sx * 0.21, 0.65, 0.43); o.add(d); }
+      const ind = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.04), new THREE.MeshBasicMaterial({ color: 0xffb020 })); ind.position.set(0, 1.28, 0.46); o.add(ind); o.userData.ind = ind;
+      const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🛗', '#ffb020'), transparent: true, depthWrite: false })); lab.scale.set(0.5, 0.5, 1); lab.position.y = 1.3; o.add(lab); o.userData.label = lab;
+    } else if (l.kind === 'vent') {
+      const grate = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.62), new THREE.MeshStandardMaterial({ color: 0x30363f, metalness: 0.6, roughness: 0.4 })); grate.rotation.x = -Math.PI / 2; grate.position.y = 0.03; o.add(grate);
+      for (let i = -2; i <= 2; i++) { const bar = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.03, 0.04), new THREE.MeshStandardMaterial({ color: 0x8fa0b0, metalness: 0.7 })); bar.position.set(0, 0.05, i * 0.12); o.add(bar); }
+      const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🌀', '#7fd8ff'), transparent: true, depthWrite: false })); lab.scale.set(0.42, 0.42, 1); lab.position.y = 1.0; o.add(lab); o.userData.label = lab;
+    } else {
+      const hole = new THREE.Mesh(new THREE.CircleGeometry(0.4, 20), new THREE.MeshBasicMaterial({ color: 0x080604 })); hole.rotation.x = -Math.PI / 2; hole.position.y = 0.03; o.add(hole);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.07, 6, 16), new THREE.MeshStandardMaterial({ color: 0x6e5a48, roughness: 0.9 })); rim.rotation.x = -Math.PI / 2; rim.position.y = 0.05; o.add(rim);
+      const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('⛏️', '#c89a5a'), transparent: true, depthWrite: false })); lab.scale.set(0.42, 0.42, 1); lab.position.y = 1.0; o.add(lab); o.userData.label = lab;
+    }
+    mapGroup.add(o); stairObjs.push(o);
+  }
+  for (const c of (m.safeCells || [])) {
+    const o = new THREE.Group(); setAt(o, c, 0); o.userData.cells = [c];
+    const t = new THREE.Mesh(new THREE.PlaneGeometry(0.94, 0.94), new THREE.MeshBasicMaterial({ color: 0x40ff90, transparent: true, opacity: 0.3, depthWrite: false })); t.rotation.x = -Math.PI / 2; t.position.y = 0.025; o.add(t);
+    const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTex(), color: 0x40ff90, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.6 })); gl.scale.set(1.6, 1.6, 1); gl.position.y = 0.5; o.add(gl);
+    const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🛡️', '#40ff90'), transparent: true, depthWrite: false })); lab.scale.set(0.5, 0.5, 1); lab.position.y = 1.3; o.add(lab); o.userData.label = lab;
+    mapGroup.add(o); stairObjs.push(o);
+  }
   for (const b of (m.boulders || [])) { const o = makeBoulder(b.home); setAt(o, b.home, 0); o.userData.cell = b.home; mapGroup.add(o); boulderObjs.push(o); } // v22 바위
   // 열쇠 + 잠긴 상자
   keyObjs = new Map();
@@ -393,6 +443,9 @@ function buildUnderground(m, L) {
   torchPts.userData.ug = true; torchPts.userData.stick = stick; mapGroup.add(torchPts);
   for (let i = 0; i < 2; i++) { const o = makeDino(); o.visible = false; mapGroup.add(o); dinoObjs.push(o); } // v23: 공룡 2마리
   weaponObj = makeWeapon(); weaponObj.visible = false; mapGroup.add(weaponObj);
+  mapItemObj = null; { const g0 = new THREE.Group(); const sc = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🗺️', '#ffe68c'), transparent: true, depthWrite: false })); sc.scale.set(0.6, 0.6, 1); sc.position.y = 0.7; g0.add(sc);
+    const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTex(), color: 0xffe68c, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.7 })); gl.scale.set(1.4, 1.4, 1); gl.position.y = 0.6; g0.add(gl);
+    g0.userData.inner = sc; g0.visible = false; mapGroup.add(g0); mapItemObj = g0; } // v26 지도
 }
 // 2×2 큰 공룡 (티라노 느낌): 몸통·꼬리·목·머리(턱이 열림)·이빨·작은 팔·굵은 다리·빛나는 눈
 function makeDino() {
@@ -615,7 +668,7 @@ R3.fx = function (list, opt) {
       const hit = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.miss ? '💨' : '💥'), transparent: true, depthWrite: false })); hit.position.set(tx, cyF + 1.6, tz); hit.scale.set(1.1, 1.1, 1);
       addFx(hit, 0.6, (t) => { hit.material.opacity = 1 - t / 0.6; const k = 1.1 + t; hit.scale.set(k, k, 1); });
       R3.muzzleT = nowS; shakeAmt = Math.max(shakeAmt, R3.camMode === 'fpv' ? 0.12 : 0.15);
-    } else if (['roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn', 'snakeStun', 'lunge', 'dinoBite', 'dinoRoar', 'weapon', 'slay', 'hatch', 'boulder', 'boulderBlock', 'boulderReset', 'dinoSniff', 'sealed', 'teleport', 'scout', 'scoutPop'].includes(e.t)) {
+    } else if (['link', 'safeIn', 'mapFound', 'shotKO', 'roomExit', 'roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn', 'snakeStun', 'lunge', 'dinoBite', 'dinoRoar', 'weapon', 'slay', 'hatch', 'boulder', 'boulderBlock', 'boulderReset', 'dinoSniff', 'sealed', 'teleport', 'scout', 'scoutPop'].includes(e.t)) {
       if (e.t === 'scout' || e.t === 'scoutPop') { const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.t === 'scout' ? '👥' : '💨'), transparent: true, depthWrite: false })); ic.position.set(cx, cyF + 1.6, cz); addFx(ic, 1.3, (t) => { ic.position.y = cyF + 1.6 + t * 0.6; ic.material.opacity = Math.max(0, 1 - t / 1.3); }); }
       if (e.t === 'teleport') { for (const [c0, k0] of [[e.from, 0], [e.to, 1]]) { if (!onF(c0)) continue; const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTex(), color: 0xb98cff, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false })); gl.position.set(wx(c0 % W), fy(c0) + 0.8, wzc(c0)); addFx(gl, 0.9, (t) => { const k = k0 ? 3.2 - t * 3 : 0.6 + t * 3; gl.scale.set(k, k * 1.6, 1); gl.material.opacity = Math.max(0, 1 - t / 0.9); }); const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('✨'), transparent: true, depthWrite: false })); ic.position.set(wx(c0 % W), fy(c0) + 1.7, wzc(c0)); addFx(ic, 1.2, (t) => { ic.position.y = fy(c0) + 1.7 + t * 0.5; ic.material.opacity = Math.max(0, 1 - t / 1.2); }); } }
       if (e.t === 'dinoRoar') { R3.dinoRoarT = nowS; shakeAmt = Math.max(shakeAmt, 0.3); }
@@ -633,7 +686,7 @@ R3.fx = function (list, opt) {
         bolt.position.set((cx + fx0) / 2, cyF + 0.9, (cz + fz0) / 2); bolt.rotation.y = Math.atan2(dx, dz);
         addFx(bolt, 0.5, (t) => { bolt.material.opacity = (1 - t / 0.5) * (0.6 + 0.4 * Math.sin(t * 80)); bolt.scale.set(1 + Math.sin(t * 60) * 0.5, 1, 1); });
       }
-      const col = { roar: 0xff3b3b, tracker: 0x59e39a, pickup: 0xffe14a, cloak: 0x9fd0ff, boost: 0xff9a2a, spawn: 0xffffff, lever: 0x7dff7d, gem: 0x40e0ff, pedestal: 0x40e0ff, chest: 0xffd54a, plate: 0xffd54a, pill: 0xff5fd2, pillSpawn: 0xff9fe8, eat: 0x3fe060, tailgrab: 0xc89a5a, snakeUp: 0x8a6a40, respawn: 0xffffff, snakeStun: 0xffe14a, lunge: 0x7dff9a, dinoBite: 0xff4020, dinoRoar: 0xc8ff6a, weapon: 0x7fd8ff, slay: 0x9fe8ff, hatch: 0xc89a5a, boulder: 0xb0a898, boulderBlock: 0xff5040, boulderReset: 0xb0a898, dinoSniff: 0xc8ff6a, sealed: 0xff3030 }[e.t];
+      const col = { link: 0xffb020, safeIn: 0x40ff90, mapFound: 0xffe68c, shotKO: 0xff5030, roomExit: 0xff2a2a, roar: 0xff3b3b, tracker: 0x59e39a, pickup: 0xffe14a, cloak: 0x9fd0ff, boost: 0xff9a2a, spawn: 0xffffff, lever: 0x7dff7d, gem: 0x40e0ff, pedestal: 0x40e0ff, chest: 0xffd54a, plate: 0xffd54a, pill: 0xff5fd2, pillSpawn: 0xff9fe8, eat: 0x3fe060, tailgrab: 0xc89a5a, snakeUp: 0x8a6a40, respawn: 0xffffff, snakeStun: 0xffe14a, lunge: 0x7dff9a, dinoBite: 0xff4020, dinoRoar: 0xc8ff6a, weapon: 0x7fd8ff, slay: 0x9fe8ff, hatch: 0xc89a5a, boulder: 0xb0a898, boulderBlock: 0xff5040, boulderReset: 0xb0a898, dinoSniff: 0xc8ff6a, sealed: 0xff3030 }[e.t];
       const big = { boulderBlock: 4, roar: 9, tracker: 3, chest: 5, eat: 4, tailgrab: 3, plate: 1, dinoRoar: 10, dinoBite: 4, weapon: 6, slay: 3 }[e.t] || 1.6, dur = ['roar', 'chest', 'eat', 'dinoRoar', 'dinoBite', 'weapon'].includes(e.t) ? 1.4 : 0.8;
       if (e.t === 'eat') { shakeAmt = Math.max(shakeAmt, 0.3); const bite = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🐍'), transparent: true, depthWrite: false })); bite.position.set(cx, cyF + 1.4, cz); addFx(bite, 2.2, (t) => { const k = 0.9 + Math.min(t, 0.5) * 2.4 + Math.sin(t * 9) * 0.05; bite.scale.set(k, k, 1); bite.material.opacity = t < 1.4 ? 1 : Math.max(0, 1 - (t - 1.4) / 0.8); }); }
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.55, 40), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, fog: false }));
@@ -806,6 +859,7 @@ R3.render = function (s) {
     o.userData.ring.material.opacity = gs.dash ? 0.9 : 0.45;
     // 기절: 별이 머리 위를 빙글빙글, 몸이 비틀거림, 팔이 축 늘어짐
     const stunned = !!gs.stun, u = o.userData;
+    if (u.pips) u.pips.forEach((p, i) => { p.material.color.setHex(i < (gs.hp ?? 2) ? 0xff3040 : 0x333333); p.position.y = stunned ? 2.75 : 2.3; });
     u.stars.visible = stunned;
     if (stunned) {
       u.stars.children.forEach((st, i) => { const a = now * 4 + (i * Math.PI) / 2; st.position.set(Math.cos(a) * 0.42, Math.sin(now * 6 + i) * 0.06, Math.sin(a) * 0.42); });
@@ -989,6 +1043,7 @@ function updateUnderground(s, now) {
       u.label.visible = R3.camMode !== 'fpv';
     }
   });
+  if (mapItemObj) { const mi = s.mapItem; mapItemObj.visible = !!mi && !mi.taken && onF(mi.cell) && (!s.fog || (s.seen && s.seen[mi.cell])); if (mapItemObj.visible) { setAt(mapItemObj, mi.cell, 0); mapItemObj.userData.inner.position.y = 0.7 + Math.sin(now * 2.5) * 0.08; } }
   if (weaponObj) {
     const w = s.weapon; weaponObj.visible = !!w && !w.taken && ug && onF(w.cell) && (!s.fog || (s.seen && s.seen[w.cell]));
     if (weaponObj.visible) { setAt(weaponObj, w.cell, 0); weaponObj.userData.inner.rotation.y = now * 1.6; weaponObj.userData.inner.position.y = 0.75 + Math.sin(now * 2.5) * 0.08; weaponObj.userData.glow.material.opacity = 0.6 + 0.3 * Math.sin(now * 5); }
