@@ -1,0 +1,255 @@
+/* 거인과 도망자 — 언어 (기본 영어, ?lang=ko 로 한국어 원문)
+ * 게임 로직은 한국어 문자열(모드 이름 등)을 그대로 쓰고, 화면에 나가는 순간 번역한다.
+ * - tr(s): 문장 규칙 → 단어 사전 → 숫자 단위 순서로 치환 (브라우저·Node 공용, 순수 함수)
+ * - 브라우저: 페이지 글자(텍스트·title·placeholder)를 MutationObserver로 계속 번역 */
+(function (root) {
+  'use strict';
+  const HANGUL = /[\uac00-\ud7a3]/;
+  const G = (n) => (n === '-1' || n === '-2' ? 'the Snake' : 'Giant ' + n); // catcher -2 → "거인-1"
+  const giantList = (s) => s.split('·').join(' & ');
+  const GL = (l) => (l.includes('·') ? 'Giants ' : 'Giant ') + giantList(l);
+  const OBJ = { '연막탄을': 'a Smoke Bomb', '부스터를': 'a Booster', '투명망토를': 'an Invisibility Cloak', '샷건을': 'a Shotgun', '벽넘기 신발을': 'Vault Shoes', '바리케이드를': 'a Barricade', '포효 뿔피리를': 'a Roar Horn', '냄새 추적기를': 'a Scent Tracker' };
+  const MISSION_NAME = { '스위치': 'Switches', '보석 운반': 'Gem Carry', '발판': 'Pressure Plate' };
+
+  // 유전자 문구 (engine3.js 의 RUNNER_GENES / GIANT_GENES 와 같은 순서·키)
+  const GENES_EN = {
+    danger: ['Caution', 'Runner now steers clear of paths near giants', 'Runner is taking risky shortcuts'],
+    flee: ['Flee radius', 'Runner learned to bolt from farther away', 'Runner stays calm even with a giant close'],
+    greed: ['Key greed', 'Runner pushes for the goal even while chased', 'Runner learned: survive first when chased'],
+    loop: ['Loop use', 'Runner learned to shake giants by circling loops', 'Runner prefers straight-line escapes'],
+    predict: ['Prediction', "Runner started predicting the giants' next moves", 'Runner only trusts what it sees now'],
+    memory: ['Memory', 'Runner remembers where giants were for longer', 'Runner forgets past danger quickly and pushes on'],
+    keySafe: ['Safe target first', 'Runner goes for keys/doors far from giants first', 'Runner goes for the nearest key/door first'],
+    sprint: ['Sprint timing', 'Runner sprints earlier', 'Runner saves sprints for the last moment'],
+    itemGreed: ['Item greed', 'Runner detours to grab items', 'Runner puts the goal before items'],
+    panic: ['Defensive item timing', 'Runner uses smoke/cloak/booster early', 'Runner saves smoke/cloak/booster for emergencies'],
+    shotgun: ['Shotgun range', 'Runner fires the shotgun from farther away', 'Runner holds fire until point-blank'],
+    barricade: ['Barricades', 'Runner learned to drop barricades when chased', 'Runner saves its barricades'],
+    missionOrder: ['Finish missions first', 'Runner finishes nearly-done missions first', 'Runner tackles the nearest mission first'],
+    plateNerve: ['Plate nerve', 'Runner holds the plate even as giants close in', 'Runner hops off the plate at the first sign of a giant'],
+    snakeLure: ['Snake lure', 'Runner learned to lure giants toward the snake', 'Runner keeps giants away from the snake'],
+    tailGrab: ['Tail grab', "Runner learned to yank the snake's tail to chase it off", "Runner leaves the snake's tail alone"],
+    vault: ['Wall vault', 'Runner vaults walls boldly', 'Runner saves vaults for big emergencies/shortcuts'],
+    stride: ['Speed focus', 'Giant trained legs over ears — faster now', 'Giant slowed down and sharpened its hearing'],
+    intercept: ['Cut-off', "Giant learned to cut off the Runner's path", 'Giant went back to chasing from behind'],
+    lookahead: ['Look-ahead', 'Giant now reads several moves ahead', 'Giant only looks at the near future'],
+    ambush: ['Ambush', 'Giant learned to ambush near keys', 'Giant prefers patrols over ambushes'],
+    dash: ['Charge range', 'Giant charges from farther away', 'Giant saves its charge for the decisive moment'],
+    patience: ['Persistence', 'Giant tracks a lost Runner more stubbornly', 'Giant gives up on lost trails quickly'],
+    scent: ['Scent tracking', 'Giant learned to follow footprint scent', 'Giant ignores old scent'],
+    exitGuard: ['Exit watch', 'Giant learned to guard routes near exits', 'Giant guards keys over exits'],
+    spread: ['Spread out', 'Giant learned to spread out and surround', 'Giant sticks with its teammates'],
+    call: ['Call backup', 'Giant calls teammates on sight', 'Giant prefers to hunt alone, quietly'],
+    smash: ['Wall smash', 'Giant smashes walls even for small shortcuts', 'Giant saves wall smashes for big shortcuts'],
+    roar: ['Roar', "Giant roars to reveal the Runner's position", 'Giant saves its roar'],
+    tracker: ['Tracker use', 'Giant uses the scent tracker fast to re-find the Runner', 'Giant holds the scent tracker for long'],
+    blockade: ['Blockade', "Giant learned to barricade the Runner's path", 'Giant saves its barricade'],
+    guard: ['Guard missions/stairs', 'Giant guards mission spots and stairs', 'Giant guards mission spots less'],
+    snakeSense: ['Snake avoidance', 'Giant smells the snake and detours', "Giant doesn't mind the snake"],
+  };
+  const geneRules = [];
+  function addGeneRules(GE) {
+    if (!GE || geneRules.length) return;
+    const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    for (const d of [...GE.RUNNER_GENES, ...GE.GIANT_GENES]) {
+      const en = GENES_EN[d.key]; if (!en) continue;
+      for (const [ko, e] of [[d.up, en[1]], [d.down, en[2]]]) {
+        if (/^거인이 /.test(ko)) geneRules.push([new RegExp('거인(\\d+)이 ' + esc(ko.slice(4))), (m, n) => e.replace(/^Giant/, 'Giant ' + n)]);
+        geneRules.push([new RegExp(esc(ko)), e]);
+      }
+      geneRules.push([new RegExp('거인(\\d+) ' + esc(d.label) + '(?=[ )]|$)'), (m, n) => `Giant ${n} ${en[0]}`]);
+      geneRules.push([new RegExp('(^|[(>])' + esc(d.label) + '(?=$|[ <)])'), (m, p) => p + en[0]]);
+    }
+  }
+
+  // 문장 규칙 (위에서부터 순서대로)
+  const R = [
+    // 고정 긴 문단
+    [/^👋 ▶ 시작을 누르면 도망자 1명과 거인 (\d+)명이 2층 미로에서 대결합니다.*$/, (m, n) => `👋 Press ▶ Start: 1 Runner vs ${n} Giants in a 2-floor maze. 💥 Giants can smash a wall every 30s, and every 5 Runner wins adds another giant (max 10).`],
+    [/^\s*🧰 열쇠는 잠긴 상자 안.*$/, '🧰 Keys sit in locked chests — solve the missions (🕹️ flip switches · 💎 carry the gem · ⏳ hold the plate) to open them. 🐍 The Snake eats 💊 pills to grow and swallows giants — the Runner passes right through it (grab its tail to make it hide). 🌫 The Runner only remembers what it has seen (toggle Full map to reveal all). 🔫 Shotgun: 2 shells, 1 reload every 5s, a hit stuns for 2s (misses more at range). 🎒 Runner items: 💨 Smoke 🚀 Booster 👻 Cloak 🤸 Vault 🧱 Barricade · Giant items: 🔊 Roar 🐾 Scent Tracker 🚧 Barricade. 💥 Each giant smashes inner walls/barricades on a 30s cooldown. 👀 Runner View shows first person. ⚡ Fast Train runs hundreds of games instantly.'],
+    [/^도망자 1명 vs 거인 4명.*$/, '1 Runner vs 4 Giants (+1 giant every 5 Runner wins, max 10) in a 2-floor maze. The 2 keys are in locked chests (🕹️ switches · 💎 gem carry · ⏳ pressure plate missions open them). Grab the keys and escape through Door A or B on 1F to win as the Runner; get caught or eaten by the 🐍 Snake and the Giants win. The Snake roams both floors via the stairs, eating 💊 pills and giants to grow. The Runner only knows what it has 🌫 seen, and picks up items (💨 Smoke 🚀 Booster 👻 Cloak 🔫 Shotgun (2 shells) 🧱 Barricade / Giants: 🔊 Roar 🐾 Scent Tracker 🚧 Barricade). 💥 Giants can smash a wall every 30s. Both sides learn from each other every game.'],
+    [/^🔫 샷건 = 도망자 기본 스킬.*$/, '🔫 Shotgun = Runner\'s base skill (2 shells, 1 reload / 5s), a hit stuns for 2s · 🤸 Vault = jump one inner wall once · 🐍 Eaten giants respawn at start after 5s (default 10 turns/s) · 🏢 Floor button: Auto → 1F → 2F · 🐍 Snake (1, uses stairs): eats only giants, the Runner passes through; step on its tail to make it vanish briefly · 💥 Wall smash 30s cooldown · 3D: three.js (bundled, MIT) · Drag to rotate · Wheel / pinch to zoom · In Runner View drag to look around · Learning is saved in this browser (localStorage)'],
+    [/^매 판이 끝나면 한 세대.*$/, 'After every game, one generation (16–24 games) trains. The Runner brain (17 genes — incl. items, missions, snake) and the Giant team brain (16 genes per giant — new giants clone & mutate the top catcher) face mutated challengers on the same map; the better one survives. The losing side sends 2 challengers and mutates harder.'],
+    [/^끄면 도망자가 직접 본 곳만.*$/, 'Off: only what the Runner has seen is lit (fog of war). Runner View always shows the Runner\'s memory.'],
+    [/^보는 층: 자동.*$/, 'Floor shown: Auto (Runner\'s floor) → 1F → 2F'],
+    [/^거인과 도망자 3D — AI 대결 · 공진화$/, 'Giants vs Runner 3D — Live AI Battle · Co-Evolution'],
+    [/(?:👹)+ 거인과 도망자 3D — AI 실시간 대결 · 공진화/, '👹 Giants vs Runner 3D — Live AI Battle · Co-Evolution'],
+    [/^(?:👹)+ 거인과 도망자 3D 🏃 🐍$/, '👹👹👹👹 Giants vs Runner 3D 🏃 🐍'],
+    // 경기 로그
+    [/거인(-?\d+)이 도망자를 잡아먹었다!/, (m, n) => (n === '-1' ? 'The Snake got the Runner!' : `Giant ${n} ate the Runner!`)],
+    [/거인(\d+)이 벽을 부셨다!/, 'Giant $1 smashed a wall!'],
+    [/거인(\d+)이 (도망자의 )?바리케이드를 (힘껏 )?부쉈다!/, (m, n, r, h) => `Giant ${n} ${h ? 'smashed' : 'broke'} ${r ? "the Runner's" : 'a'} barricade!`],
+    [/도망자가 스위치를 켰다! 🕹️ 미션: 스위치 (\d+)\/(\d+)/, 'Runner flipped a switch! 🕹️ Switches $1/$2'],
+    [/도망자가 보석을 주웠다! 💎 받침대로 옮겨라 \(미션: 보석 0\/1\)/, 'Runner grabbed the gem! 💎 Get it to the pedestal'],
+    [/미션 완료\((.+?)\)! 🧰 (\d+)층 상자가 열렸다 — 열쇠를 꺼낼 수 있다/, (m, a, f) => `Mission complete (${MISSION_NAME[a] || a})! 🧰 The ${f}F chest is open — key up for grabs`],
+    [/뷱이 거인(\d+)을 삼켰다! 🐍 \((\d+)초 뒤 출발점에서 부활\)/, 'The Snake swallowed Giant $1! 🐍 (respawns in $2s)'],
+    [/도망자가 전력질주한다!/, 'Runner sprints!'],
+    [/🤸 도망자 벽넘기!/, '🤸 Runner vaults the wall!'],
+    [/도망자가 (.+?) 주웠다!/, (m, o) => `Runner picked up ${OBJ[o] || o}!`],
+    [/거인(\d+)이 (.+?) 주웠다!/, (m, n, o) => `Giant ${n} picked up ${OBJ[o] || o}!`],
+    [/도망자가 마지막 열쇠를 얻었다! 🔑 문 A·B가 열렸다/, 'Runner got the LAST KEY! 🔑 Doors A & B are OPEN'],
+    [/도망자가 열쇠를 주웠다 🔑 \((\d+)\/(\d+)\)/, 'Runner grabbed a key 🔑 ($1/$2)'],
+    [/도망자가 뷱의 꼬리를 잡아당겼다! 🐍 뷱이 땅속으로 숨었다 \((\d+)턴\)/, "Runner yanked the Snake's tail! 🐍 It burrowed underground ($1 turns)"],
+    [/도망자가 문 (\S+)로 빠져나갔다!/, 'Runner slipped out through Door $1!'],
+    [/도망자가 발판을 밟고 버틴다… 미션: 발판 (\d+)\/(\d+) \(쿵쿵! 거인이 들을 수 있다\)/, 'Runner holds the plate… $1/$2 (thud thud — giants can hear it!)'],
+    [/도망자가 발판에서 내려왔다 — 발판 미션이 처음으로 돌아갔다/, 'Runner stepped off — plate mission reset'],
+    [/거인(\d+)이 동료를 불렀다!/, 'Giant $1 called for backup!'],
+    [/거인(\d+)이 정신을 차렸다/, 'Giant $1 shook it off'],
+    [/거인(\d+)이 돌진한다!/, 'Giant $1 CHARGES!'],
+    [/문의 빛에 눈이 부신 거인(\d+)이 문 근처에서 물러난다/, 'Blinded by the door light, Giant $1 backs off'],
+    [/열쇠의 빛에 눈이 부신 거인(\d+)이 열쇠 근처에서 물러난다/, "Blinded by the key's glow, Giant $1 backs off"],
+    [/거인(\d+)이 뷱의 배 속에서 빠져나와 출발점에 다시 나타났다/, "Giant $1 escaped the Snake's belly and respawned"],
+    [/뷱이 도망자를 삼켰다!/, 'The Snake swallowed the Runner!'],
+    [/탈출 성공! 도망자가 문 (\S+)로 탈출했다/, 'ESCAPED! Runner got out through Door $1'],
+    [/시간 초과 — 무승부/, "Time's up — Draw"],
+    [/도망자가 거인(\d+)을 발견했다!/, 'Runner spotted Giant $1!'],
+    [/도망자가 거인(\d+)의 발소리를 들었다…/, "Runner hears Giant $1's footsteps…"],
+    [/도망자가 뷱을 발견했다!/, 'Runner spotted the Snake!'],
+    [/도망자가 (\d+)층에서 잠긴 상자를 찾았다! 🧰 단서: (.*)$/, (m, f, c) => `Runner found a locked chest on ${f}F! 🧰 Clue: ` + c.replace(/스위치 (\d+)개를 켜라/, 'flip $1 switches').replace('보석을 받침대로 옮겨라', 'carry the gem to the pedestal').replace(/발판 위에서 (\d+)턴 버텨라/, 'hold the plate for $1 turns')],
+    [/도망자가 문 (\S+) 쪽으로 방향을 바꿨다/, 'Runner switches to Door $1'],
+    [/도망자가 문 (\S+)를 노린다/, 'Runner heads for Door $1'],
+    [/도망자가 샷건을 쐈지만 빗나갔다! 🔫💨 샷건 (\d+)\/(\d+)/, 'Runner fires — MISSED! 🔫💨 Ammo $1/$2'],
+    [/총소리를 들은 거인([\d·]+)이 몰려온다!/, (m, l) => `${GL(l)} heard the shot — closing in!`],
+    [/도망자가 샷건을 쐈다! 🔫 거인(\d+) (\d+)초 기절 · 샷건 (\d+)\/(\d+)(?: \(장전 (\d+)초\))?/, (m, n, s, a, b, r) => `Runner fires the shotgun! 🔫 Giant ${n} stunned ${s}s · Ammo ${a}/${b}${r ? ` (reload ${r}s)` : ''}`],
+    [/도망자가 연막탄을 터뜨렸다! 💨 (.*?)의 눈이 가려졌다/, (m, l) => `Runner popped a smoke bomb! 💨 ${GL(l.replace(/거인/g, ''))} blinded`],
+    [/도망자가 연막탄을 터뜨렸다!/, 'Runner popped a smoke bomb!'],
+    [/도망자가 투명망토를 둘렀다! 👻 \(뛰면 발소리는 들린다\)/, 'Runner put on the invisibility cloak! 👻 (footsteps still audible)'],
+    [/도망자가 부스터를 켰다!/, 'Runner hit the booster!'],
+    [/도망자가 뒤에 바리케이드를 쳤다!/, 'Runner dropped a barricade behind!'],
+    [/거인(\d+)이 포효했다! 🔊 모든 거인이 도망자의 위치를 알았다/, 'Giant $1 ROARS! 🔊 Every giant knows where the Runner is'],
+    [/거인(\d+)이 냄새 추적기를 켰다! 🐾 도망자의 발자국을 따라간다/, "Giant $1 turned on the scent tracker! 🐾 Following the Runner's tracks"],
+    [/거인(\d+)이 길목에 바리케이드를 쳤다!/, 'Giant $1 blocked the path with a barricade!'],
+    [/뷱이 (\d+)층에 다시 나타났다!/, 'The Snake resurfaced on $1F!'],
+    [/뷱이 알약을 먹고 길어졌다! 💊 \(길이 (\d+)\)/, 'The Snake ate a pill and grew! 💊 (length $1)'],
+    [/뷱이 알약을 먹었다 💊 \(이미 최대 길이 (\d+)\)/, 'The Snake ate a pill 💊 (already max length $1)'],
+    [/거인(\d+)이 도망자를 발견했다!/, 'Giant $1 spotted the Runner!'],
+    [/거인(\d+)이 도망자의 냄새를 맡았다!/, "Giant $1 caught the Runner's scent!"],
+    [/거인(\d+)이 매복하러 간다…/, 'Giant $1 sets up an ambush…'],
+    [/거인(\d+)이 계단을 지키러 간다…/, 'Giant $1 moves to guard the stairs…'],
+    [/거인(\d+)이 미션 장소을 지키러 간다…/, 'Giant $1 moves to guard a mission spot…'],
+    // UI 문장
+    [/도망자 (\d+)승! 거인이 한 명 늘었다 👹 \(거인([\d·]+) 등장 — 이제 (\d+)명\)/, (m, w, l, n) => `Runner win #${w}! A new giant joins 👹 (${GL(l)} enters — now ${n} giants)`],
+    [/— 새 경기 \(도망자 Lv\.(\d+) vs 거인팀 Lv\.(\d+): (.*)\) —/, (m, a, b, l) => `— New game (Runner Lv.${a} vs Giants Lv.${b}: ${l.replace(/(\d+)번 /g, '#$1 ')}) —`],
+    [/(\d+)턴 · 경기 후 복기 훈련 중…/, 'Turn $1 · post-game training…'],
+    [/(\d+)턴 · (\d+)세대 학습 완료/, 'Turn $1 · Gen $2 learned'],
+    [/🏃 문 (\S+) 탈출 성공!/, '🏃 ESCAPED via Door $1!'],
+    [/👹 거인(\d+)이 잡아먹었다!/, '👹 Giant $1 got the Runner!'],
+    [/🐍 뷱이 도망자를 삼켰다!/, '🐍 The Snake swallowed the Runner!'],
+    [/⏳ 시간 초과/, "⏳ Time's up"],
+    [/⚡ 빠른 훈련 (\d+)세대\((\d+)판\) 완료 — 도망자 (\d+)% · 거인팀 (\d+)% · 레벨 도망자 \+(\d+), 거인팀 \+(\d+)/, '⚡ Fast training: $1 gens ($2 games) done — Runner $3% · Giants $4% · Levels: Runner +$5, Giants +$6'],
+    [/(\d+)\/(\d+)세대 · (\d+)판 · 도망자 (NaN|\d+)% \/ 거인팀 (NaN|\d+)%/, '$1/$2 gens · $3 games · Runner $4% / Giants $5%'],
+    [/📊 (\d+)세대 훈련 (\d+)판: 도망자 (\d+)% · 거인팀 (\d+)%/, '📊 Gen $1 training, $2 games: Runner $3% · Giants $4%'],
+    [/훈련 경기 ([\d,]+)판 \(도망자 (\d+) · 거인팀 (\d+) · 무 (\d+)\)/, 'Training games: $1 (Runner $2 · Giants $3 · Draw $4)'],
+    [/훈련 경기 (\d+)판/, 'Training games: $1'],
+    [/🐍 뷱이 먹은 거인 (\d+) · 도망자 (\d+) · 알약 (\d+)/, '🐍 Snake ate: $1 giants · $2 runners · $3 pills'],
+    [/👹 거인 (\d+)명 · 최대 인원\((\d+)명\)/, '👹 $1 giants · MAX ($2)'],
+    [/👹 거인 (\d+)명 · 다음 거인 추가까지 도망자 (\d+)승/, '👹 $1 giants · next giant in $2 Runner wins'],
+    [/💾 두뇌 저장 완료 \((\d+)세대, 도망자 Lv\.(\d+) · 거인팀 Lv\.(\d+)\)/, '💾 Brains saved (Gen $1, Runner Lv.$2 · Giants Lv.$3)'],
+    [/📂 두뇌 불러오기 완료 \((\d+)세대, (.*) 저장본\)/, '📂 Brains loaded (Gen $1, saved $2)'],
+    [/🧹 초기화 완료 — 0세대부터 다시 시작합니다 \(거인 (\d+)명\)/, '🧹 Reset done — starting over from Gen 0 ($1 giants)'],
+    [/🧹 두뇌 초기화 — 모두 1레벨부터 다시 배웁니다 \(거인 (\d+)명으로\)/, '🧹 Brains reset — everyone relearns from Lv.1 ($1 giants)'],
+    [/👀 미리보기: 거인 (\d+)명 \(저장 안 함\)/, '👀 Preview: $1 giants (not saved)'],
+    [/👀 미리보기\(\?giants=\) 중에는 저장하지 않습니다/, '👀 Not saving during preview (?giants=)'],
+    [/🧊 3D 화면 준비 완료 — 드래그로 회전, 휠\/두 손가락으로 확대/, '🧊 3D ready — drag to rotate, wheel / pinch to zoom'],
+    [/이 기기에서는 3D\(WebGL\)를 쓸 수 없어 2D로 보여줍니다/, 'No 3D (WebGL) on this device — showing 2D'],
+    [/3D를 쓸 수 없어 2D 화면으로 보여줍니다/, '3D unavailable — showing 2D'],
+    [/⚠️ 진행이 멈춰 새 경기를 시작합니다/, '⚠️ Game stalled — starting a new one'],
+    [/도망자와 거인팀의 학습 내용과 점수를 모두 지울까요\? \(저장본은 그대로 남습니다\)/, 'Erase all Runner/Giant learning and scores? (Saved brains stay)'],
+    [/🧬 <b>(\d+)<\/b>세대 · 훈련 ([\d,]+)판/, '🧬 Gen <b>$1</b> · $2 training games'],
+    [/최근 도망자 승률/, 'Runner win rate (recent)'],
+    [/🐍 거인 (\d+)마리 꿀꺽/, (m, n) => `🐍 ${n} giant${n === '1' ? '' : 's'} gulped`],
+    [/⏱ 턴 (\d+)/, '⏱ Turn $1'],
+    [/📏 거인까지 (\d+|-)칸?/, '📏 Nearest giant $1'],
+    [/거인까지 (\d+)칸/, 'Giant $1 tiles away'],
+    [/장전 중… (\d+)% \((\d+)초에 1발\)/, 'Reloading… $1% (1 shell / $2s)'],
+    [/벽부수기 준비: 거인([\d·]+)/, (m, l) => `Wall smash ready: ${GL(l)}`],
+    [/다음 벽부수기 (\d+)초/, 'Next wall smash in $1s'],
+    [/거인(\d+) 벽부수기 준비/, 'Giant $1 wall smash ready'],
+    [/거인(\d+) 벽부수기 (\d+)초 남음/, 'Giant $1 wall smash in $2s'],
+    [/거인(\d+) 벽 부수기/, 'Giant $1 wall smash'],
+    [/🐍배 속 (\d+)초/, '🐍belly $1s'],
+    [/🐍 거인(\d+) 부활 (\d+)초/, '🐍 Giant $1 back in $2s'],
+    [/💫 거인(\d+) 기절 ([\d.]+)초/, '💫 Giant $1 stunned $2s'],
+    [/🐾 거인([\d·]+) 추적 중!/, (m, l) => `🐾 ${GL(l)} tracking!`],
+    [/(\d+)층 · 미션을 풀어 상자를 열어라/, '$1F · Solve missions to open the chests'],
+    [/(\d+)층 · 문이 열렸다! 1층 빛을 따라가라/, '$1F · Doors open! Follow the light on 1F'],
+    [/(\d+)↺(\d+)초/, '$1↺$2s'],
+    [/🐍 거인(\d+) 부활/, '🐍 Giant $1 respawn'],
+    [/🎥 추격전! 거인이 바로 뒤에!/, '🎥 CHASE! A giant is right behind!'],
+    [/🔊 클릭하면 소리 켜짐/, '🔊 Click to enable sound'],
+  ];
+  // 단어·짧은 구절 (긴 것 먼저)
+  const WORDS = [
+    ['미션(발판)', 'Mission (plate)'], ['길목 차단', 'Cut-off'], ['흔적 추적', 'Trailing'], ['냄새 추적', 'Sniffing'], ['아이템 줍기', 'Item run'], ['소화 중', 'Digesting'], ['거인 사냥', 'Hunting giants'], ['알약 찾기', 'Pill hunt'],
+    ['추격조', 'Chaser'], ['차단조', 'Cutter'], ['매복조', 'Ambusher'], ['파괴조', 'Wrecker'],
+    ['🏢 층: 자동', '🏢 Floor: Auto'], ['🏢 층: ', '🏢 Floor: '], ['문 안 (안전)', 'Out the door (safe)'], ['· 문 A/B 열림', '· Doors A/B open'], ['문 열림!', 'Doors open!'], ['💎 운반 중', '💎 carrying'],
+    ['아이템을 주워 위기를 넘겨라', 'Grab items to survive'], ['아직 학습 기록이 없습니다', 'No training history yet'], ['장전 완료', 'Loaded'], ['질주 중!', 'Sprinting!'], ['준비됨', 'Ready'], ['준비', 'Ready'],
+    ['▶ 시작', '▶ Start'], ['⏸ 일시정지', '⏸ Pause'], ['↺ 다시', '↺ Replay'], ['🗺 새 맵', '🗺 New map'], ['🧊 3D 보기', '🧊 3D view'], ['🗺 2D 보기', '🗺 2D view'], ['🎥 도망자 따라가기', '🎥 Follow Runner'], ['🎥 자유 시점', '🎥 Free cam'], ['🔭 전체 보기', '🔭 Overview'],
+    ['🏃 3인칭', '🏃 3rd person'], ['🎥 3인칭으로', '🎥 3rd person'], ['🎥 위에서 보기', '🎥 Top view'], ['👀 도망자 시점', '👀 Runner view'], ['속도 ', 'Speed '], ['턴/초', ' turns/s'], ['자동 다음 판', 'Auto next game'], ['거인 시야', 'Giant vision'], ['전체 지도 보기', 'Full map'], ['미니맵', 'Minimap'],
+    ['도망자 승', 'Runner wins'], ['무승부', 'Draws'], ['거인팀 승', 'Giant wins'], ['🧠 학습', '🧠 Learning'], ['⚡ 빠른 훈련 중…', '⚡ Fast training…'], ['⚡ 빠른 훈련', '⚡ Fast train'], ['💾 두뇌 저장', '💾 Save brains'], ['📂 불러오기', '📂 Load'], ['🧹 초기화', '🧹 Reset'],
+    ['📈 세대별 승률', '📈 Win rate by generation'], ['📢 실시간 중계', '📢 Live feed'], ['📏 가장 가까운 거인', '📏 Nearest giant'], ['💥 벽 부수기', '💥 Wall smash'], ['저장된 두뇌가 없습니다', 'No saved brains'], ['저장본 형식이 달라 불러오지 못했습니다', 'Save format differs — could not load'],
+    ['불러오기 실패: ', 'Load failed: '], ['저장 실패: ', 'Save failed: '], ['볼륨', 'Volume'], ['배경음악', 'Music'], ['효과음', 'SFX'],
+    ['거인팀', 'Giants'], ['도망자', 'Runner'], ['뷱', 'Snake'], ['샷건', 'Shotgun'], ['미션: ', 'Mission: '], ['미션', 'Mission'], ['안전', 'safe'], ['무 ', 'Draw '], ['스위치', 'Switch'], ['보석', 'Gem'], ['발판', 'Plate'], ['숨음', 'hidden'], ['기절', 'stunned'], ['장전', 'reload'],
+    ['연막탄', 'Smoke Bomb'], ['부스터', 'Booster'], ['투명망토', 'Cloak'], ['벽넘기', 'Vault'], ['바리케이드', 'Barricade'], ['포효 뿔피리', 'Roar Horn'], ['냄새 추적기', 'Scent Tracker'], ['투명', 'Cloak'],
+    ['탐색', 'Exploring'], ['순찰', 'Patrol'], ['어슬렁', 'Roaming'], ['매복', 'Ambush'], ['지루함', 'Bored'], ['추격', 'Chase'], ['차단', 'Cut'], ['파괴', 'Wreck'], ['돌파', 'Break out'], ['도주', 'Fleeing'], ['경계', 'Alert'], ['목표로', 'To goal'],
+    ['오전', 'AM'], ['오후', 'PM'],
+  ].sort((a, b) => b[0].length - a[0].length);
+  const UNITS = [
+    [/턴 (\d+)/g, 'T$1'], [/(\d+)세대 \(약 ([\d,]+)판\)/g, '$1 gens (~$2 games)'], [/(\d+)세대/g, 'Gen $1'], [/^세대$/g, ' gen'], [/(\d+)판/g, '$1 games'], [/(\d+)승/g, '$1 wins'],
+    [/⏱ 턴 /g, '⏱ Turn '], [/(\d+)층/g, '$1F'], [/(\d+)\s?초 남음/g, '$1s left'], [/(\d+(?:\.\d)?)초/g, '$1s'], [/(\d+)턴/g, '$1 turns'], [/(\d+)칸/g, '$1 tiles'], [/(\d+)명/g, '$1'],
+    [/거인 (\d+)/g, 'Giant $1'], [/거인(-?\d+)의/g, (m, n) => G(n) + "'s"], [/거인(-?\d+)(?:이|가|을|를|은|는)?/g, (m, n) => G(n)], [/(\d+)번 /g, '#$1 '], [/거인/g, 'Giant'],
+    [/^초$/g, 's'], [/^칸$/g, ' tiles'], [/(\d)년 ?/g, '$1-'], [/(\d)월 ?/g, '$1-'], [/(\d)일/g, '$1'],
+  ];
+  const cache = new Map();
+  function tr(s) {
+    if (I18N.lang === 'ko' || typeof s !== 'string' || !HANGUL.test(s)) return s;
+    const hit = cache.get(s); if (hit !== undefined) return hit;
+    let o = s;
+    if (!geneRules.length && root.GE) addGeneRules(root.GE);
+    for (const [re, to] of geneRules) if (HANGUL.test(o)) o = o.replace(re, to);
+    for (const [re, to] of R) { if (!HANGUL.test(o)) break; o = o.replace(re, to); }
+    for (const [ko, en] of WORDS) { if (!HANGUL.test(o)) break; if (o.includes(ko)) o = o.split(ko).join(en); }
+    for (const [re, to] of UNITS) { if (!HANGUL.test(o)) break; o = o.replace(re, to); }
+    if (cache.size > 5000) cache.clear(); cache.set(s, o);
+    return o;
+  }
+  const qs = root.location ? new URLSearchParams(root.location.search) : null;
+  const I18N = { lang: qs && qs.get('lang') === 'ko' ? 'ko' : 'en', tr, addGeneRules, hasHangul: (s) => HANGUL.test(s) };
+  root.I18N = I18N;
+  if (typeof module !== 'undefined') module.exports = I18N;
+
+  // ---------- 브라우저: 화면 글자 자동 번역 ----------
+  if (!root.document || I18N.lang === 'ko') return;
+  const doc = root.document;
+  doc.documentElement.lang = 'en';
+  const ATTRS = ['title', 'placeholder', 'aria-label'];
+  function fixText(n) { const v = n.nodeValue; if (v && HANGUL.test(v)) { const t = tr(v); if (t !== v) n.nodeValue = t; } }
+  function fixEl(el) {
+    for (const a of ATTRS) { const v = el.getAttribute && el.getAttribute(a); if (v && HANGUL.test(v)) el.setAttribute(a, tr(v)); }
+  }
+  function walk(rootNode) {
+    if (rootNode.nodeType === 3) return fixText(rootNode);
+    if (rootNode.nodeType !== 1) return;
+    fixEl(rootNode);
+    const w = doc.createTreeWalker(rootNode, 5 /* element | text */);
+    let n; while ((n = w.nextNode())) { if (n.nodeType === 3) fixText(n); else fixEl(n); }
+  }
+  // innerHTML 로 통째로 바뀌는 문장(예: 🧬 <b>12</b>세대 · …)은 요소 단위로도 한 번 맞춰 봄
+  function fixHtml(el) { if (!el || !el.innerHTML || el.children.length > 12 || !HANGUL.test(el.innerHTML)) return; const h = el.innerHTML, t = tr(h); if (t !== h && !HANGUL.test(t)) el.innerHTML = t; }
+  const mo = new MutationObserver((list) => {
+    for (const m of list) {
+      if (m.type === 'characterData') { const hi = m.target.parentElement && m.target.parentElement.closest('#h-info'); if (hi) fixHtml(hi); else fixText(m.target); }
+      else if (m.type === 'attributes') fixEl(m.target);
+      else { const hi = m.target.closest && m.target.closest('#h-info'); if (hi) fixHtml(hi); for (const n of m.addedNodes) walk(n); }
+    }
+  });
+  function start() {
+    fixHtml(doc.getElementById('h-info'));
+    if (doc.title && HANGUL.test(doc.title)) doc.title = tr(doc.title);
+    walk(doc.body);
+    mo.observe(doc.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ATTRS });
+    const _confirm = root.confirm; root.confirm = (m) => _confirm.call(root, tr(String(m)));
+  }
+  if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', start); else start();
+  if (doc.title && HANGUL.test(doc.title)) doc.title = tr(doc.title);
+})(typeof window !== 'undefined' ? window : globalThis);

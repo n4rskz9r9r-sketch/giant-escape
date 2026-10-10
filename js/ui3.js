@@ -3,6 +3,9 @@
   'use strict';
   const GE = window.GE, CFG = GE.CFG;
   const $ = (id) => document.getElementById(id);
+  const TR = (t) => (window.I18N ? window.I18N.tr(t) : t); // 화면 언어 (기본 영어, ?lang=ko)
+  const EN = !!(window.I18N && window.I18N.lang !== 'ko');
+  const roleShort = (g) => (EN ? TR(GE.roleOf(g)) : GE.roleOf(g).slice(0, 2));
   const STORE = 'giantEscape.brains.v7'; // v7: 벽 부수기 유전자 + 거인 수(4~10) 저장 (이전 저장본은 무시)
   const II = GE.ITEM_INFO, R_ITEMS = GE.R_ITEMS;
   const GCOL = ['#ff5d5d', '#ff8a3d', '#d0569a', '#9b7bff', '#3fd0c9', '#c8e04a', '#ff6fb5', '#5aa9ff', '#e0b04a', '#b8b8d0']; // 거인1~10
@@ -175,7 +178,7 @@
       if (!G.out || G.home.f !== vf) return; const px = (G.home.x + .5) * T, py = (G.home.y + .5) * T;
       c.strokeStyle = GCOL[k]; c.lineWidth = 2; c.setLineDash([3, 3]); c.beginPath(); c.arc(px, py, T * (mini ? 0.9 : 0.55), 0, 7); c.stroke(); c.setLineDash([]);
       c.font = `bold ${mini ? 10 : Math.max(10, T * 0.42)}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 3; c.strokeStyle = '#000';
-      const tx = mini ? `${G.outSec}` : `${k + 1}↺${G.outSec}초`; c.strokeText(tx, px, py); c.fillStyle = '#ffd54a'; c.fillText(tx, px, py);
+      const tx = mini ? `${G.outSec}` : TR(`${k + 1}↺${G.outSec}초`); c.strokeText(tx, px, py); c.fillStyle = '#ffd54a'; c.fillText(tx, px, py);
     });
     // 층 표시
     c.font = `bold ${mini ? 11 : Math.max(12, T * 0.7)}px sans-serif`; c.textAlign = 'left'; c.textBaseline = 'top'; c.lineWidth = 3; c.strokeStyle = '#000';
@@ -272,7 +275,7 @@
       gbox.innerHTML = h;
     }
     team.forEach((g, k) => {
-      gbox.querySelector(`[data-role="${k}"]`).textContent = team.length > 6 ? GE.roleOf(g).slice(0, 2) : GE.roleOf(g);
+      gbox.querySelector(`[data-role="${k}"]`).textContent = team.length > 6 ? roleShort(g) : GE.roleOf(g);
       for (const d of GE.GIANT_GENES) { const el = gbox.querySelector(`[data-k="${d.key}"][data-g="${k}"]`); el.firstChild.style.width = ((g[d.key] ?? 0) * 100).toFixed(1) + '%'; el.title = `거인${k + 1} ${d.label} ${Math.round(g[d.key] * 100)}`; el.classList.toggle('flash', !!app.flashGenes['g' + k + d.key]); }
     });
     $('lv-runner').textContent = trainer.runner.level; $('lv-giant').textContent = trainer.giant.level;
@@ -327,7 +330,7 @@
     g.giants.forEach((G, k) => { if (G.out > 0) return; for (const i of g.map.floor) if (GE.giantSees(g, k, i)) set.add(i); });
     app.vision = [...set]; app.visionVer++;
     if (STREAM) { hudStatus(); hudAmmo(); }
-    fpvHudUpdate();
+    fpvHudUpdate(); soundDanger();
   }
   // 샷건(기본 스킬): n/2 + 장전 진행률
   function reloadFrac() { const R = app.game && app.game.runner; if (!R || R.inv.shotgun >= CFG.SHOTGUN_AMMO) return 1; return Math.min(1, (R.reload || 0) / GE.secTurns(CFG.SHOTGUN_RELOAD_SEC)); }
@@ -337,7 +340,10 @@
     return parts.length ? pre + parts.join(' ') : '';
   }
   function tick() {
-    const g = app.game; if (!g || g.result) return; app.lastTickAt = performance.now(); g.step();
+    const g = app.game; if (!g || g.result) return; app.lastTickAt = performance.now();
+    const keys0 = g.keysHeld, left0 = g.keysLeft.length;
+    g.step();
+    if (window.GSound) soundTick(g, keys0, left0);
     // 거인이 부순 벽 → 3D에 반영 (파편·흔들림)
     if (g.smashed.length > (app.smashSeen || 0)) {
       const fresh = g.smashed.slice(app.smashSeen || 0); app.smashSeen = g.smashed.length;
@@ -351,14 +357,42 @@
       for (const e of fresh) { if (e.t === 'smoke') { e.turns = CFG.SMOKE_TURNS; e.radius = CFG.SMOKE_RADIUS; } app.fx2d.push({ e, at, dur: e.t === 'smoke' ? CFG.SMOKE_TURNS / tps + 0.6 : 1.2 }); }
       app.fx2d = app.fx2d.filter((f) => (at - f.at) / 1000 < f.dur);
       if (app.has3d) window.Render3D.fx(fresh, { tps });
+      if (window.GSound) soundFx(fresh);
       if (fresh.some((e) => e.t === 'cloak')) stageEl.classList.add('cloaked');
     }
     stageEl.classList.toggle('cloaked', g.runner.cloak > 0);
     flushEvents(); updateStatus(); if (g.result) onRoundEnd();
   }
+  // ---------- 사운드 연결 (js/audio3.js) ----------
+  const SND = (n) => { if (window.GSound && !app.training) window.GSound.play(n); };
+  function soundFx(fresh) {
+    for (const e of fresh) {
+      if (e.t === 'shot') { SND(e.miss ? 'miss' : 'shot'); if (!e.miss) setTimeout(() => SND('stun'), 160); }
+      else if (e.t === 'smash') SND('smash');
+      else if (e.t === 'barricadeBreak' || e.t === 'barricade') SND('barricade');
+      else if (e.t === 'vault') SND('vault');
+      else if (e.t === 'eat' && e.giant >= 0) SND('gulp');
+      else if (e.t === 'pickup') SND('item');
+      else if (e.t === 'respawn') SND('respawn');
+      else if (e.t === 'roar') SND('roar');
+      else if (e.t === 'smoke' || e.t === 'cloak' || e.t === 'boost') SND(e.t);
+      else if (e.t === 'lever' || e.t === 'gem' || e.t === 'pedestal') SND('mission');
+      else if (e.t === 'chest') SND('door');
+    }
+  }
+  function soundTick(g, keys0, left0) {
+    if (g.keysHeld > keys0) SND('key');
+    if (left0 > 0 && g.keysLeft.length === 0) setTimeout(() => SND('door'), 250);
+  }
+  function soundDanger() {
+    if (!window.GSound) return; const g = app.game, d = app.nearD ?? 999;
+    window.GSound.quiet = !!app.training;
+    window.GSound.setDanger(!g || g.result || app.training || !app.playing || d >= 999 ? 0 : Math.max(0, Math.min(1, (13 - d) / 11)));
+  }
   function onRoundEnd() {
     const g = app.game, r = g.result; app.endAt = performance.now();
     app.score[r]++;
+    SND(r === 'runner' ? 'win' : r === 'giant' ? (g.catcher === -2 ? 'gulp' : 'caught') : 'respawn'); if (r === 'giant' && g.catcher === -2) setTimeout(() => SND('caught'), 450);
     app.snakeStats = app.snakeStats || { giants: 0, runner: 0, pills: 0 };
     app.snakeStats.giants += g.snakeAte.giants; app.snakeStats.runner += g.snakeAte.runner; app.snakeStats.pills += g.snakeAte.pills;
     $('sc-snake').textContent = `🐍 뷱이 먹은 거인 ${app.snakeStats.giants} · 도망자 ${app.snakeStats.runner} · 알약 ${app.snakeStats.pills}`;
@@ -366,7 +400,7 @@
     const added = trainer.recordVisible(r, g.catcher);
     if (added.length) {
       const msg = `도망자 ${trainer.growWins}승! 거인이 한 명 늘었다 👹 (거인${added.map((k) => k + 1).join('·')} 등장 — 이제 ${trainer.giantCount}명)`;
-      log(msg, 'grow'); fpvToast(msg, 'grow'); if (STREAM) hudLog(msg, 'grow');
+      log(msg, 'grow'); fpvToast(msg, 'grow'); if (STREAM) hudLog(msg, 'grow'); setTimeout(() => SND('grow'), 2200);
       renderGenes(); saveQuiet();
     }
     updateGiantCount();
@@ -396,13 +430,13 @@
     if (rec) log(`📊 ${trainer.generation}세대 훈련 ${rec.n}판: 도망자 ${Math.round(rec.runner * 100)}% · 거인팀 ${Math.round(rec.giant * 100)}%`, 'learn', `${trainer.generation}세대`);
     renderGenes(); drawChart();
   }
-  function setPlaying(p) { app.playing = p; $('btnPlay').textContent = p ? '⏸ 일시정지' : '▶ 시작'; if (p && app.game && app.game.result) newRound(true); }
+  function setPlaying(p) { app.playing = p; $('btnPlay').textContent = p ? '⏸ 일시정지' : '▶ 시작'; if (p && app.game && app.game.result) newRound(true); soundDanger(); }
 
   // ---------- 빠른 훈련 ----------
   function fastTrain(gens) {
     if (app.training) return;
     setPlaying(false); clearTimeout(app.nextTimer);
-    app.training = true; document.querySelectorAll('button,select').forEach((b) => (b.disabled = true));
+    app.training = true; soundDanger(); document.querySelectorAll('button,select').forEach((b) => (b.disabled = true));
     $('trainOverlay').classList.remove('hidden');
     const before = { r: { ...trainer.runner.genes }, t: trainer.giant.team.map((g) => ({ ...g })) };
     const lv0 = { r: trainer.runner.level, g: trainer.giant.level };
@@ -422,7 +456,7 @@
       $('trainOverlay').classList.add('hidden');
       document.querySelectorAll('button,select').forEach((b) => (b.disabled = false));
       if (!app.has3d) $('btnView').disabled = true;
-      app.training = false; newRound(true); setPlaying(true);
+      app.training = false; newRound(true); setPlaying(true); soundDanger();
       if (STREAM) { saveQuiet(); hudUpdate(); }
     };
     setTimeout(chunk, 30);
@@ -450,7 +484,7 @@
       app.score = o.score || app.score;
       $('sc-runner').textContent = app.score.runner; $('sc-giant').textContent = app.score.giant; $('sc-draw').textContent = app.score.draw;
       renderGenes(); drawChart(); updateGiantCount(); newRound(true);
-      log(`📂 두뇌 불러오기 완료 (${trainer.generation}세대, ${new Date(o.savedAt).toLocaleString('ko-KR')} 저장본)`, 'learn');
+      log(`📂 두뇌 불러오기 완료 (${trainer.generation}세대, ${new Date(o.savedAt).toLocaleString(EN ? 'en-US' : 'ko-KR')} 저장본)`, 'learn');
       return true;
     } catch (e) { if (!silent) log('불러오기 실패: ' + e.message, 'spot'); return false; }
   }
@@ -596,9 +630,9 @@
     if (!hud) return;
     $('h-r').textContent = app.score.runner; $('h-g').textContent = app.score.giant; $('h-d').textContent = app.score.draw;
     const recent = trainer.history.slice(-20); let rr = 0, n = 0; for (const h of recent) { rr += h.runner * h.n; n += h.n; }
-    $('h-info').innerHTML = `🧬 <b>${trainer.generation}</b>세대 · 훈련 ${trainer.rounds.toLocaleString('ko-KR')}판 · 🏃 Lv.<b>${trainer.runner.level}</b> · 👹 Lv.<b>${trainer.giant.level}</b>` +
+    $('h-info').innerHTML = `🧬 <b>${trainer.generation}</b>세대 · 훈련 ${trainer.rounds.toLocaleString(EN ? 'en-US' : 'ko-KR')}판 · 🏃 Lv.<b>${trainer.runner.level}</b> · 👹 Lv.<b>${trainer.giant.level}</b>` +
       (n ? ` · 최근 도망자 승률 <b>${Math.round((100 * rr) / n)}%</b>` : '') +
-      `<br>${trainer.giant.team.map((g, k) => `<span style="color:${GCOL[k]}">${trainer.giantCount > 6 ? k + 1 : '거인' + (k + 1)} ${trainer.giantCount > 6 ? GE.roleOf(g).slice(0, 2) : GE.roleOf(g)}</span>`).join(' · ')}`;
+      `<br>${trainer.giant.team.map((g, k) => `<span style="color:${GCOL[k]}">${trainer.giantCount > 6 ? k + 1 : '거인' + (k + 1)} ${trainer.giantCount > 6 ? roleShort(g) : GE.roleOf(g)}</span>`).join(' · ')}`;
     updateGiantCount();
   }
   function hudStatus() {

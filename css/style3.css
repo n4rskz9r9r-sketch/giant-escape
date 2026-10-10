@@ -181,3 +181,9 @@ body.stream .fh-item { font-size:1.4em; }
 .hud-ammo.empty { border-color:rgba(255,90,90,.8); }
 .hud-ammo .am-sub { font-size:15px; color:#cfd3ef; margin-top:3px; }
 .fpv-hud .fh-item[data-it="shotgun"] b { font-size:12px; }
+/* 사운드 (v17) */
+.sound-ctl { display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.sound-ctl #btnSound { min-width:42px; font-size:16px; }
+.sound-ctl #sndVol { width:90px; }
+.sound-hint { position:absolute; left:12px; bottom:12px; z-index:30; padding:5px 10px; border-radius:8px; background:rgba(0,0,0,.55); color:#dfe4ff; font-size:13px; pointer-events:none; opacity:.85; }
+body.stream .sound-hint { left:16px; bottom:16px; font-size:15px; }

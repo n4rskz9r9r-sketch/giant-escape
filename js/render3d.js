@@ -50,8 +50,8 @@ function drawRespawn(k, sec) {
   g.fillStyle = 'rgba(8,10,20,0.78)'; g.beginPath(); g.roundRect(6, 10, 244, 108, 30); g.fill();
   g.lineWidth = 6; g.strokeStyle = '#' + GIANT_COLORS[k % GIANT_COLORS.length].toString(16).padStart(6, '0'); g.stroke();
   g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff';
-  g.font = 'bold 34px sans-serif'; g.fillText(`🐍 거인${k + 1} 부활`, 128, 42);
-  g.font = 'bold 50px sans-serif'; g.fillStyle = '#ffd54a'; g.fillText(`${sec}초`, 128, 90);
+  g.font = 'bold 34px sans-serif'; g.fillText(window.I18N ? window.I18N.tr(`🐍 거인${k + 1} 부활`) : `🐍 거인${k + 1} 부활`, 128, 42);
+  g.font = 'bold 50px sans-serif'; g.fillStyle = '#ffd54a'; g.fillText(window.I18N && window.I18N.lang !== 'ko' ? `${sec}s` : `${sec}초`, 128, 90);
   u.t.needsUpdate = true;
 }
 let smokeTex = null;
