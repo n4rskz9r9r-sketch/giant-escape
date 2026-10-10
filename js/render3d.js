@@ -87,7 +87,7 @@ const LZ = (f) => (map && map.levels && map.levels[f] ? map.levels[f].lz : f);
 const fy = (c) => LZ(cellF(c)) * FLOOR_Y;
 const wzc = (c) => wz(map && map.ay ? map.ay[c] : ((c / W) | 0) % FH);
 const LV = (o) => (o.lv != null ? o.lv : Math.round(o.f || 0));
-let B1 = -1, torchList = [], torchLights = [], torchPts = null, dinoObj = null, weaponObj = null;
+let B1 = -1, torchList = [], torchLights = [], torchPts = null, dinoObjs = [], weaponObj = null;
 function setAt(o, c, y) { o.position.set(wx(c % W), (y || 0) + fy(c), wzc(c)); }
 
 function labelSprite(text, color, scale) {
@@ -257,7 +257,7 @@ R3.setMap = function (m) {
   map = m; W = m.W; H = m.H; FH = m.FH || m.H;
   const LVS = m.levels || Array.from({ length: m.floors || 1 }, (_, f) => ({ row0: f * FH, h: FH, zOff: 0, lz: f }));
   NF = LVS.length; B1 = m.B1 != null ? m.B1 : -1;
-  dinoObj = null; weaponObj = null; torchPts = null; torchList = []; boulderObjs = [];
+  dinoObjs = []; weaponObj = null; torchPts = null; torchList = []; boulderObjs = [];
   mapGroup = new THREE.Group(); scene.add(mapGroup);
   const tileGeo = new THREE.PlaneGeometry(0.96, 0.96); tileGeo.rotateX(-Math.PI / 2);
   const wallGeo = new THREE.BoxGeometry(1, 0.95, 1); wallGeo.translate(0, 0.475, 0);
@@ -389,7 +389,7 @@ function buildUnderground(m, L) {
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   torchPts = new THREE.Points(geo, new THREE.PointsMaterial({ map: getGlowTex(), color: 0xff9a3a, size: 0.9, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
   torchPts.userData.ug = true; torchPts.userData.stick = stick; mapGroup.add(torchPts);
-  dinoObj = makeDino(); dinoObj.visible = false; mapGroup.add(dinoObj);
+  for (let i = 0; i < 2; i++) { const o = makeDino(); o.visible = false; mapGroup.add(o); dinoObjs.push(o); } // v23: 공룡 2마리
   weaponObj = makeWeapon(); weaponObj.visible = false; mapGroup.add(weaponObj);
 }
 // 2×2 큰 공룡 (티라노 느낌): 몸통·꼬리·목·머리(턱이 열림)·이빨·작은 팔·굵은 다리·빛나는 눈
@@ -613,9 +613,10 @@ R3.fx = function (list, opt) {
       const hit = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.miss ? '💨' : '💥'), transparent: true, depthWrite: false })); hit.position.set(tx, cyF + 1.6, tz); hit.scale.set(1.1, 1.1, 1);
       addFx(hit, 0.6, (t) => { hit.material.opacity = 1 - t / 0.6; const k = 1.1 + t; hit.scale.set(k, k, 1); });
       R3.muzzleT = nowS; shakeAmt = Math.max(shakeAmt, R3.camMode === 'fpv' ? 0.12 : 0.15);
-    } else if (['roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn', 'snakeStun', 'lunge', 'dinoBite', 'dinoRoar', 'weapon', 'slay', 'hatch', 'boulder', 'boulderBlock', 'boulderReset'].includes(e.t)) {
+    } else if (['roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn', 'snakeStun', 'lunge', 'dinoBite', 'dinoRoar', 'weapon', 'slay', 'hatch', 'boulder', 'boulderBlock', 'boulderReset', 'dinoSniff', 'sealed'].includes(e.t)) {
       if (e.t === 'dinoRoar') { R3.dinoRoarT = nowS; shakeAmt = Math.max(shakeAmt, 0.3); }
       if (e.t === 'boulderBlock') { shakeAmt = Math.max(shakeAmt, 0.25); const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🪨'), transparent: true, depthWrite: false })); ic.position.set(cx, cyF + 1.6, cz); addFx(ic, 2.0, (t) => { const k = 0.8 + Math.min(t, 0.4) * 2.5; ic.scale.set(k, k, 1); ic.material.opacity = t < 1.3 ? 1 : Math.max(0, 1 - (t - 1.3) / 0.7); }); }
+      if (e.t === 'dinoSniff' || e.t === 'sealed') { const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.t === 'sealed' ? '🚫' : '👃'), transparent: true, depthWrite: false })); ic.position.set(cx + (e.t === 'sealed' ? 0 : 0.5), cyF + 2.4, cz + 0.5); addFx(ic, 1.8, (t) => { ic.position.y = cyF + 2.4 + t * 0.4; ic.scale.setScalar(1.1); ic.material.opacity = Math.max(0, 1 - t / 1.8); }); if (e.t === 'sealed') shakeAmt = Math.max(shakeAmt, 0.3); }
       if (e.t === 'boulder') shakeAmt = Math.max(shakeAmt, 0.05);
       if (e.t === 'dinoBite' || e.t === 'weapon' || e.t === 'slay') {
         shakeAmt = Math.max(shakeAmt, e.t === 'weapon' ? 0.1 : 0.35); if (e.t === 'dinoBite') R3.dinoRoarT = nowS;
@@ -628,7 +629,7 @@ R3.fx = function (list, opt) {
         bolt.position.set((cx + fx0) / 2, cyF + 0.9, (cz + fz0) / 2); bolt.rotation.y = Math.atan2(dx, dz);
         addFx(bolt, 0.5, (t) => { bolt.material.opacity = (1 - t / 0.5) * (0.6 + 0.4 * Math.sin(t * 80)); bolt.scale.set(1 + Math.sin(t * 60) * 0.5, 1, 1); });
       }
-      const col = { roar: 0xff3b3b, tracker: 0x59e39a, pickup: 0xffe14a, cloak: 0x9fd0ff, boost: 0xff9a2a, spawn: 0xffffff, lever: 0x7dff7d, gem: 0x40e0ff, pedestal: 0x40e0ff, chest: 0xffd54a, plate: 0xffd54a, pill: 0xff5fd2, pillSpawn: 0xff9fe8, eat: 0x3fe060, tailgrab: 0xc89a5a, snakeUp: 0x8a6a40, respawn: 0xffffff, snakeStun: 0xffe14a, lunge: 0x7dff9a, dinoBite: 0xff4020, dinoRoar: 0xc8ff6a, weapon: 0x7fd8ff, slay: 0x9fe8ff, hatch: 0xc89a5a, boulder: 0xb0a898, boulderBlock: 0xff5040, boulderReset: 0xb0a898 }[e.t];
+      const col = { roar: 0xff3b3b, tracker: 0x59e39a, pickup: 0xffe14a, cloak: 0x9fd0ff, boost: 0xff9a2a, spawn: 0xffffff, lever: 0x7dff7d, gem: 0x40e0ff, pedestal: 0x40e0ff, chest: 0xffd54a, plate: 0xffd54a, pill: 0xff5fd2, pillSpawn: 0xff9fe8, eat: 0x3fe060, tailgrab: 0xc89a5a, snakeUp: 0x8a6a40, respawn: 0xffffff, snakeStun: 0xffe14a, lunge: 0x7dff9a, dinoBite: 0xff4020, dinoRoar: 0xc8ff6a, weapon: 0x7fd8ff, slay: 0x9fe8ff, hatch: 0xc89a5a, boulder: 0xb0a898, boulderBlock: 0xff5040, boulderReset: 0xb0a898, dinoSniff: 0xc8ff6a, sealed: 0xff3030 }[e.t];
       const big = { boulderBlock: 4, roar: 9, tracker: 3, chest: 5, eat: 4, tailgrab: 3, plate: 1, dinoRoar: 10, dinoBite: 4, weapon: 6, slay: 3 }[e.t] || 1.6, dur = ['roar', 'chest', 'eat', 'dinoRoar', 'dinoBite', 'weapon'].includes(e.t) ? 1.4 : 0.8;
       if (e.t === 'eat') { shakeAmt = Math.max(shakeAmt, 0.3); const bite = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🐍'), transparent: true, depthWrite: false })); bite.position.set(cx, cyF + 1.4, cz); addFx(bite, 2.2, (t) => { const k = 0.9 + Math.min(t, 0.5) * 2.4 + Math.sin(t * 9) * 0.05; bite.scale.set(k, k, 1); bite.material.opacity = t < 1.4 ? 1 : Math.max(0, 1 - (t - 1.4) / 0.8); }); }
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.55, 40), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, fog: false }));
@@ -965,23 +966,24 @@ function isWallAt(x, y, lv) { const c = cellAtL(x, y, lv); return c < 0 || (wall
 // v21: 공룡 위치·걸음·턱, 무기 반짝임, 횃불 깜빡임 + 가까운 횃불에 실제 빛
 function updateUnderground(s, now) {
   const ug = B1 >= 0 && focusF === B1;
-  if (dinoObj) {
-    const d = s.dino, u = dinoObj.userData;
+  dinoObjs.forEach((dinoObj, i) => {
+    const d = (s.dinos || [])[i], u = dinoObj.userData;
     dinoObj.visible = !!d && ug;
     if (d && dinoObj.visible) {
       const fpS = R3.camMode === 'fpv' ? 1.25 : 1;
       dinoObj.position.set(wx(d.x + 0.5), LZ(B1) * FLOOR_Y, wz(d.y + 0.5)); dinoObj.scale.setScalar(fpS);
-      if (d.fx || d.fy) dinoObj.rotation.y = angLerp(dinoObj.rotation.y, Math.atan2(d.fx, d.fy), 0.12);
-      const moving = !!d.moving, sp = d.chase ? 9 : 5; u.walk += moving ? 0.016 * sp : 0;
+      if (d.fx || d.fy) dinoObj.rotation.y = angLerp(dinoObj.rotation.y, Math.atan2(d.fx, d.fy), d.chase ? 0.12 : 0.05); // 느리게 몸을 돌림
+      const moving = !!d.moving, sp = d.chase ? 10 : d.sniff ? 3.5 : 3; u.walk += moving ? 0.016 * sp : 0;
       u.legs[0].rotation.x = Math.sin(u.walk) * 0.55; u.legs[1].rotation.x = -Math.sin(u.walk) * 0.55;
       u.body.position.y = Math.abs(Math.sin(u.walk)) * 0.06; u.body.rotation.z = Math.sin(u.walk) * 0.03;
-      u.tail.rotation.z = Math.sin(now * 2.2) * 0.25;
+      u.tail.rotation.z = Math.sin(now * (d.sniff ? 4 : 2.2)) * 0.25;
       const roar = now - (R3.dinoRoarT || -9) < 1.4 || s.result === 'giant' && s.catcher === -4;
       u.jaw.rotation.x = roar ? 0.55 + Math.sin(now * 18) * 0.08 : d.chase ? 0.25 + Math.sin(now * 6) * 0.15 : 0.06 + Math.sin(now * 1.5) * 0.04;
-      u.head.rotation.x = roar ? -0.35 : Math.sin(now * 1.3) * 0.08;
+      // 킁킁: 냄새 추적 중엔 머리를 땅으로 숙이고 빠르게 까딱
+      u.head.rotation.x = roar ? -0.35 : d.sniff ? 0.55 + Math.sin(now * 14 + i) * 0.12 : Math.sin(now * 1.3 + i) * 0.08;
       u.label.visible = R3.camMode !== 'fpv';
     }
-  }
+  });
   if (weaponObj) {
     const w = s.weapon; weaponObj.visible = !!w && !w.taken && ug && onF(w.cell) && (!s.fog || (s.seen && s.seen[w.cell]));
     if (weaponObj.visible) { setAt(weaponObj, w.cell, 0); weaponObj.userData.inner.rotation.y = now * 1.6; weaponObj.userData.inner.position.y = 0.75 + Math.sin(now * 2.5) * 0.08; weaponObj.userData.glow.material.opacity = 0.6 + 0.3 * Math.sin(now * 5); }
