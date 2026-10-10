@@ -190,3 +190,22 @@ body.stream .fh-item { font-size:1.4em; }
 @keyframes sndPulse { 50% { transform:translate(-50%,-50%) scale(1.06); } }
 body.stream .sound-hint:not(.big) { left:16px; bottom:16px; font-size:15px; }
 @media (max-width: 640px) { .sound-ctl #sndVol { width:110px; } .sound-ctl #btnSound { min-width:48px; font-size:18px; } }
+/* v19: 뷱 승리 (세 번째 편) */
+.team.snake b { color:#7dff9a; }
+.legend .ls { color:#7dff9a; }
+.brain.snake h3 { color:#7dff9a; }
+.brain.snake .gene .bar i { background:linear-gradient(90deg,#2fae4a,#8bd94a); }
+.hud-score .s b { color:#7dff9a; font-size:34px; }
+.hud-snake { position:absolute; right:18px; top:222px; min-width:230px; background:rgba(10,12,28,.78); padding:7px 14px 8px; border-radius:12px; border:2px solid rgba(125,255,154,.5); }
+.hud-snake .sn-top { display:flex; align-items:center; gap:8px; font-size:22px; font-weight:800; }
+.hud-snake .sn-ic { font-size:26px; } .hud-snake .sn-name { color:#7dff9a; }
+.hud-snake b { font-size:28px; color:#fff; margin-left:auto; }
+.hud-snake .sn-bar { height:8px; margin-top:6px; background:rgba(255,255,255,.15); border-radius:5px; overflow:hidden; }
+.hud-snake .sn-bar i { display:block; height:100%; width:0; background:linear-gradient(90deg,#2fae4a,#8bd94a); transition:width .3s linear; }
+.hud-snake.hot { border-color:rgba(255,120,80,.9); } .hud-snake.hot .sn-bar i { background:linear-gradient(90deg,#ff9a2a,#ff4a4a); }
+.hud-snake.won { border-color:#7dff9a; box-shadow:0 0 18px rgba(125,255,154,.7); }
+.hud-snake .sn-sub { font-size:15px; color:#cfd3ef; margin-top:3px; }
+.log li.snakeBlock, .hud-log li.snakeBlock { color:#9fe0ff; font-weight:700; }
+.log li.snakeWarn, .hud-log li.snakeWarn { color:#ff9a6a; font-weight:700; }
+.score { grid-template-columns: 1fr .8fr 1fr 1fr; } .score .scoreline { grid-column: 1 / -1; }
+.hud-score { gap:8px; padding:6px 12px; font-size:19px; } .hud-score .r b, .hud-score .g b, .hud-score .s b { font-size:28px; } .hud-score .d { font-size:15px; }

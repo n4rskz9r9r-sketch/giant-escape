@@ -139,7 +139,7 @@
     E.setIntensity = (v) => { E.target = Math.max(0, Math.min(1, v)); };
 
     // ---------- SFX ----------
-    const MIN_GAP = { shot: 0.12, miss: 0.12, stun: 0.25, smash: 0.35, vault: 0.2, key: 0.2, door: 1, win: 2, caught: 2, gulp: 0.4, item: 0.12, respawn: 0.4, grow: 2, roar: 0.8, barricade: 0.25, mission: 0.2, cloak: 0.4, boost: 0.4, smoke: 0.4 };
+    const MIN_GAP = { shot: 0.12, miss: 0.12, stun: 0.25, smash: 0.35, vault: 0.2, key: 0.2, door: 1, win: 2, caught: 2, gulp: 0.4, item: 0.12, respawn: 0.4, grow: 2, snakeWin: 2, block: 0.3, roar: 0.8, barricade: 0.25, mission: 0.2, cloak: 0.4, boost: 0.4, smoke: 0.4 };
     const lastAt = {};
     const F = {
       shot(t) { noise(t, 0.35, 0.5, sfxBus, { f: 3200, to: 260, q: 0.8, a: 0.002 }); osc('sine', 150, t, 0.25, 0.45, sfxBus, { to: 40, glide: 0.2, a: 0.002, r: 0.12 }); noise(t + 0.06, 0.5, 0.08, sfxBus, { f: 700, to: 200 }); },
@@ -161,6 +161,13 @@
       respawn(t) { noise(t, 0.6, 0.12, sfxBus, { f: 200, to: 2000, a: 0.4 }); osc('sine', 50, t, 0.65, 0.2, sfxBus, { to: 120, glide: 0.6, a: 0.35, r: 0.15 }); },
       grow(t) { [0, 0.35, 0.7].forEach((d) => { osc('sine', 80, t + d, 0.4, 0.4, sfxBus, { to: 35, glide: 0.35, a: 0.003, r: 0.2 }); noise(t + d, 0.25, 0.1, sfxBus, { f: 500, to: 100 }); });
         [45, 48, 52].forEach((n) => osc('sawtooth', mtof(n), t + 1.05, 1.3, 0.04, sfxBus, { a: 0.03, s: 0.7, r: 0.7, lp: 600 })); },
+      // v19: 뷱 승리 팡파르 — 쉭쉭 소리 + 낮고 기묘한 단조 상행 + 꿀꺽
+      snakeWin(t) { noise(t, 0.5, 0.1, sfxBus, { type: 'bandpass', f: 5000, to: 2500, q: 2, a: 0.02 }); noise(t + 0.35, 0.5, 0.08, sfxBus, { type: 'bandpass', f: 5200, to: 2600, q: 2, a: 0.02 });
+        [[57, 0.15], [60, 0.3], [63, 0.45], [66, 0.6], [69, 0.75]].forEach(([n, d]) => osc('square', mtof(n), t + d, 0.14, 0.05, sfxBus, { a: 0.004, s: 0.5, r: 0.08, lp: 1800 }));
+        [45, 48, 51, 57].forEach((n) => { osc('sawtooth', mtof(n), t + 0.95, 1.5, 0.04, sfxBus, { a: 0.03, s: 0.7, r: 0.8, lp: 1100, detune: (Math.random() - 0.5) * 14 }); osc('triangle', mtof(n + 12), t + 0.95, 1.5, 0.04, sfxBus, { a: 0.02, s: 0.6, r: 0.8 }); });
+        osc('sine', 420, t + 1.0, 0.2, 0.22, sfxBus, { to: 80, glide: 0.18, a: 0.005, r: 0.08 }); osc('sine', 55, t + 0.95, 1.4, 0.25, sfxBus, { a: 0.02, s: 0.5, r: 0.6 }); },
+      // v19: 도망자가 뷱을 막음 (꼬리 잡기·뷱 기절) — 짧은 방패 소리
+      block(t) { osc('triangle', mtof(81), t, 0.12, 0.09, sfxBus, { to: mtof(88), glide: 0.08, a: 0.003, r: 0.08 }); osc('sine', mtof(69), t + 0.06, 0.25, 0.08, sfxBus, { a: 0.003, s: 0.4, r: 0.15 }); noise(t, 0.08, 0.05, sfxBus, { type: 'bandpass', f: 3000, q: 2 }); },
       roar(t) { noise(t, 0.8, 0.14, sfxBus, { type: 'bandpass', f: 300, to: 160, q: 2, a: 0.08 }); osc('sawtooth', 75, t, 0.8, 0.07, sfxBus, { to: 55, glide: 0.7, lp: 400, a: 0.08 }); },
       barricade(t) { noise(t, 0.12, 0.15, sfxBus, { f: 1500, to: 300 }); osc('sine', 140, t, 0.12, 0.2, sfxBus, { to: 70, a: 0.002 }); },
       mission(t) { osc('triangle', mtof(72), t, 0.1, 0.07, sfxBus, { a: 0.003 }); osc('triangle', mtof(76), t + 0.08, 0.16, 0.07, sfxBus, { a: 0.003 }); },

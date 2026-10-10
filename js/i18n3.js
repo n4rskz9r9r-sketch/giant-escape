@@ -46,12 +46,22 @@
     blockade: ['Blockade', "Giant learned to barricade the Runner's path", 'Giant saves its barricade'],
     guard: ['Guard missions/stairs', 'Giant guards mission spots and stairs', 'Giant guards mission spots less'],
     snakeSense: ['Snake avoidance', 'Giant smells the snake and detours', "Giant doesn't mind the snake"],
+    snakeStop: ['Block the Snake', 'Runner steps in to stop the Snake before it eats too many giants', 'Runner ignores the Snake and focuses on escaping'],
+    snakeShot: ['Shoot the Snake', 'Runner started shooting the Snake when it hunts giants', 'Runner saves its shotgun for giants'],
+    sHunt: ['Hunting sense', 'Snake smells giants from farther away', 'Snake only goes for giants right in front of it'],
+    sChase: ['Relentless chase', 'Snake chases a lost giant for longer', 'Snake gives up on lost giants quickly'],
+    sPill: ['Pill greed', 'Snake travels far for pills', 'Snake skips pills to focus on giants'],
+    sCamp: ['Respawn ambush', 'Snake learned to wait near where eaten giants respawn', 'Snake ignores respawn spots'],
+    sFloor: ['Floor switching', 'Snake takes the stairs to the floor with more giants', 'Snake tends to stay on its floor'],
+    sAmbush: ['Junction ambush', 'Snake learned to lurk at junctions for giants', 'Snake keeps moving without stopping'],
+    sLunge: ['Lunge', 'Snake lunges at giants from farther away', 'Snake saves its lunge for point-blank'],
+    sDodge: ['Runner dodge', 'Snake keeps away from the Runner to protect its tail', "Snake doesn't mind the Runner"],
   };
   const geneRules = [];
   function addGeneRules(GE) {
     if (!GE || geneRules.length) return;
     const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    for (const d of [...GE.RUNNER_GENES, ...GE.GIANT_GENES]) {
+    for (const d of [...GE.RUNNER_GENES, ...GE.GIANT_GENES, ...(GE.SNAKE_GENES || [])]) {
       const en = GENES_EN[d.key]; if (!en) continue;
       for (const [ko, e] of [[d.up, en[1]], [d.down, en[2]]]) {
         if (/^거인이 /.test(ko)) geneRules.push([new RegExp('거인(\\d+)이 ' + esc(ko.slice(4))), (m, n) => e.replace(/^Giant/, 'Giant ' + n)]);
@@ -67,15 +77,23 @@
     // 고정 긴 문단
     [/^👋 ▶ 시작을 누르면 도망자 1명과 거인 (\d+)명이 2층 미로에서 대결합니다.*$/, (m, n) => `👋 Press ▶ Start: 1 Runner vs ${n} Giants in a 2-floor maze. 💥 Giants can smash a wall every 30s, and every 5 Runner wins adds another giant (max 10).`],
     [/^\s*🧰 열쇠는 잠긴 상자 안.*$/, '🧰 Keys sit in locked chests — solve the missions (🕹️ flip switches · 💎 carry the gem · ⏳ hold the plate) to open them. 🐍 The Snake eats 💊 pills to grow and swallows giants — the Runner passes right through it (grab its tail to make it hide). 🌫 The Runner only remembers what it has seen (toggle Full map to reveal all). 🔫 Shotgun: 2 shells, 1 reload every 5s, a hit stuns for 2s (misses more at range). 🎒 Runner items: 💨 Smoke 🚀 Booster 👻 Cloak 🤸 Vault 🧱 Barricade · Giant items: 🔊 Roar 🐾 Scent Tracker 🚧 Barricade. 💥 Each giant smashes inner walls/barricades on a 30s cooldown. 👀 Runner View shows first person. ⚡ Fast Train runs hundreds of games instantly.'],
-    [/^도망자 1명 vs 거인 4명.*$/, '1 Runner vs 4 Giants (+1 giant every 5 Runner wins, max 10) in a 2-floor maze. The 2 keys are in locked chests (🕹️ switches · 💎 gem carry · ⏳ pressure plate missions open them). Grab the keys and escape through Door A or B on 1F to win as the Runner; get caught or eaten by the 🐍 Snake and the Giants win. The Snake roams both floors via the stairs, eating 💊 pills and giants to grow. The Runner only knows what it has 🌫 seen, and picks up items (💨 Smoke 🚀 Booster 👻 Cloak 🔫 Shotgun (2 shells) 🧱 Barricade / Giants: 🔊 Roar 🐾 Scent Tracker 🚧 Barricade). 💥 Giants can smash a wall every 30s. Both sides learn from each other every game.'],
-    [/^🔫 샷건 = 도망자 기본 스킬.*$/, '🔫 Shotgun = Runner\'s base skill (2 shells, 1 reload / 5s), a hit stuns for 2s · 🤸 Vault = jump one inner wall once · 🐍 Eaten giants respawn at start after 5s (default 10 turns/s) · 🏢 Floor button: Auto → 1F → 2F · 🐍 Snake (1, uses stairs): eats only giants, the Runner passes through; step on its tail to make it vanish briefly · 💥 Wall smash 30s cooldown · 3D: three.js (bundled, MIT) · Drag to rotate · Wheel / pinch to zoom · In Runner View drag to look around · Learning is saved in this browser (localStorage)'],
+    [/^도망자 1명 vs 거인 4명.*$/, '1 Runner vs 4 Giants (+1 giant every 5 Runner wins, max 10) in a 2-floor maze. The 2 keys are in locked chests (🕹️ switches · 💎 gem carry · ⏳ pressure plate missions open them). Grab the keys and escape through Door A or B on 1F to win as the Runner; get caught and the Giants win; if the 🐍 Snake eats 30 giants in one game, the Snake wins (the Runner blocks it with tail grabs and the shotgun). The Snake roams both floors via the stairs, eating 💊 pills and giants to grow. The Runner only knows what it has 🌫 seen, and picks up items (💨 Smoke 🚀 Booster 👻 Cloak 🔫 Shotgun (2 shells) 🧱 Barricade / Giants: 🔊 Roar 🐾 Scent Tracker 🚧 Barricade). 💥 Giants can smash a wall every 30s. All three sides — Runner, Giants and Snake — learn from each other every game.'],
+    [/^🔫 샷건 = 도망자 기본 스킬.*$/, '🔫 Shotgun = Runner\'s base skill (2 shells, 1 reload / 5s), a hit stuns for 2s · 🤸 Vault = jump one inner wall once · 🐍 Eaten giants respawn at start after 5s (default 10 turns/s) · 🏢 Floor button: Auto → 1F → 2F · 🐍 Snake (1, uses stairs): eats only giants, the Runner passes through; step on its tail to make it vanish briefly, a shotgun hit stuns it for 3s · 🐍 The Snake learns too: eat 30 giants in one game to win · 💥 Wall smash 30s cooldown · 3D: three.js (bundled, MIT) · Drag to rotate · Wheel / pinch to zoom · In Runner View drag to look around · Learning is saved in this browser (localStorage)'],
     [/^매 판이 끝나면 한 세대.*$/, 'After every game, one generation (16–24 games) trains. The Runner brain (17 genes — incl. items, missions, snake) and the Giant team brain (16 genes per giant — new giants clone & mutate the top catcher) face mutated challengers on the same map; the better one survives. The losing side sends 2 challengers and mutates harder.'],
     [/^끄면 도망자가 직접 본 곳만.*$/, 'Off: only what the Runner has seen is lit (fog of war). Runner View always shows the Runner\'s memory.'],
     [/^보는 층: 자동.*$/, 'Floor shown: Auto (Runner\'s floor) → 1F → 2F'],
     [/^거인과 도망자 3D — AI 대결 · 공진화$/, 'Giants vs Runner 3D — Live AI Battle · Co-Evolution'],
     [/(?:👹)+ 거인과 도망자 3D — AI 실시간 대결 · 공진화/, '👹 Giants vs Runner 3D — Live AI Battle · Co-Evolution'],
     [/^(?:👹)+ 거인과 도망자 3D 🏃 🐍$/, '👹👹👹👹 Giants vs Runner 3D 🏃 🐍'],
+    [/^🐍 새 규칙: 뷱도 학습합니다!.*?거인 (\d+)마리.*$/, '🐍 New rule: the Snake learns too! If it eats $1 giants in one game, the Snake wins (Runner and Giants both lose). The Runner fights back by yanking its tail and shooting it with the shotgun.'],
+    [/^매 판이 끝나면 한 세대.*$/, 'After every game, one generation (16–24 games) trains. The Runner brain (19 genes — incl. items, missions, blocking the snake), the Giant team brain (16 genes per giant — new giants clone & mutate the top catcher) and the Snake brain (8 genes — hunting, respawn ambush, lunge…) face mutated challengers on the same map; the better one survives. The losing side sends extra challengers and mutates harder.'],
     // 경기 로그
+    [/🐍 뷱이 거인 (\d+)\/(\d+)마리째! (\d+)마리만 더 먹으면 뷱 승리/, (m, a, b, c) => `🐍 The Snake has eaten ${a}/${b} giants! ${c} more and the Snake wins`],
+    [/🛡️ 도망자가 뷱을 막았다! 꼬리를 잡아 땅속으로 쫓아냈다 \(뷱 (\d+)\/(\d+)\)/, '🛡️ Runner blocked the Snake! Yanked its tail and drove it underground (Snake $1/$2)'],
+    [/🛡️ 도망자가 뷱을 쐈다! 🔫 뷱 (\d+)초 기절 — 거인 사냥을 막았다 \(뷱 (\d+)\/(\d+)\)/, '🛡️ Runner shot the Snake! 🔫 Snake stunned $1s — giant hunt stopped (Snake $2/$3)'],
+    [/도망자가 뷱을 쐈지만 빗나갔다! 🔫💨 샷건 (\d+)\/(\d+)/, 'Runner fired at the Snake — MISSED! 🔫💨 Ammo $1/$2'],
+    [/뷱 승리! 🐍👑 뷱이 거인을 (\d+)마리 먹어 치웠다/, 'SNAKE WINS! 🐍👑 The Snake devoured $1 giants'],
+    [/🐍👑 뷱 승리! 거인 (\d+)마리 꿀꺽/, '🐍👑 SNAKE WINS! $1 giants gulped'],
     [/거인(-?\d+)이 도망자를 잡아먹었다!/, (m, n) => (n === '-1' ? 'The Snake got the Runner!' : `Giant ${n} ate the Runner!`)],
     [/거인(\d+)이 벽을 부셨다!/, 'Giant $1 smashed a wall!'],
     [/거인(\d+)이 (도망자의 )?바리케이드를 (힘껏 )?부쉈다!/, (m, n, r, h) => `Giant ${n} ${h ? 'smashed' : 'broke'} ${r ? "the Runner's" : 'a'} barricade!`],
@@ -136,9 +154,11 @@
     [/👹 거인(\d+)이 잡아먹었다!/, '👹 Giant $1 got the Runner!'],
     [/🐍 뷱이 도망자를 삼켰다!/, '🐍 The Snake swallowed the Runner!'],
     [/⏳ 시간 초과/, "⏳ Time's up"],
+    [/⚡ 빠른 훈련 (\d+)세대\((\d+)판\) 완료 — 도망자 (\d+)% · 거인팀 (\d+)% · 뷱 (\d+)% · 레벨 도망자 \+(\d+), 거인팀 \+(\d+), 뷱 \+(\d+)/, '⚡ Fast training: $1 gens ($2 games) done — Runner $3% · Giants $4% · Snake $5% · Levels: Runner +$6, Giants +$7, Snake +$8'],
     [/⚡ 빠른 훈련 (\d+)세대\((\d+)판\) 완료 — 도망자 (\d+)% · 거인팀 (\d+)% · 레벨 도망자 \+(\d+), 거인팀 \+(\d+)/, '⚡ Fast training: $1 gens ($2 games) done — Runner $3% · Giants $4% · Levels: Runner +$5, Giants +$6'],
     [/(\d+)\/(\d+)세대 · (\d+)판 · 도망자 (NaN|\d+)% \/ 거인팀 (NaN|\d+)%/, '$1/$2 gens · $3 games · Runner $4% / Giants $5%'],
     [/📊 (\d+)세대 훈련 (\d+)판: 도망자 (\d+)% · 거인팀 (\d+)%/, '📊 Gen $1 training, $2 games: Runner $3% · Giants $4%'],
+    [/훈련 경기 ([\d,]+)판 \(도망자 (\d+) · 거인팀 (\d+) · 뷱 (\d+) · 무 (\d+)\)/, 'Training games: $1 (Runner $2 · Giants $3 · Snake $4 · Draw $5)'],
     [/훈련 경기 ([\d,]+)판 \(도망자 (\d+) · 거인팀 (\d+) · 무 (\d+)\)/, 'Training games: $1 (Runner $2 · Giants $3 · Draw $4)'],
     [/훈련 경기 (\d+)판/, 'Training games: $1'],
     [/🐍 뷱이 먹은 거인 (\d+) · 도망자 (\d+) · 알약 (\d+)/, '🐍 Snake ate: $1 giants · $2 runners · $3 pills'],
@@ -181,6 +201,7 @@
   ];
   // 단어·짧은 구절 (긴 것 먼저)
   const WORDS = [
+    ['거인을 먹으면 뷱 승리', 'Eat giants to win'], ['뷱 승리', 'Snake wins'], ['땅속에 숨음', 'Underground'], ['뷱 막기', 'Blocking Snake'], ['부활 매복', 'Spawn ambush'], ['막기', 'Blocks'], ['뷱 승', 'Snake wins'],
     ['미션(발판)', 'Mission (plate)'], ['길목 차단', 'Cut-off'], ['흔적 추적', 'Trailing'], ['냄새 추적', 'Sniffing'], ['아이템 줍기', 'Item run'], ['소화 중', 'Digesting'], ['거인 사냥', 'Hunting giants'], ['알약 찾기', 'Pill hunt'],
     ['추격조', 'Chaser'], ['차단조', 'Cutter'], ['매복조', 'Ambusher'], ['파괴조', 'Wrecker'],
     ['🏢 층: 자동', '🏢 Floor: Auto'], ['🏢 층: ', '🏢 Floor: '], ['문 안 (안전)', 'Out the door (safe)'], ['· 문 A/B 열림', '· Doors A/B open'], ['문 열림!', 'Doors open!'], ['💎 운반 중', '💎 carrying'],
@@ -236,7 +257,7 @@
     let n; while ((n = w.nextNode())) { if (n.nodeType === 3) fixText(n); else fixEl(n); }
   }
   // innerHTML 로 통째로 바뀌는 문장(예: 🧬 <b>12</b>세대 · …)은 요소 단위로도 한 번 맞춰 봄
-  function fixHtml(el) { if (!el || !el.innerHTML || el.children.length > 12 || !HANGUL.test(el.innerHTML)) return; const h = el.innerHTML, t = tr(h); if (t !== h && !HANGUL.test(t)) el.innerHTML = t; }
+  function fixHtml(el) { if (!el || !el.innerHTML || el.children.length > 40 || !HANGUL.test(el.innerHTML)) return; const h = el.innerHTML, t = tr(h); if (t !== h && !HANGUL.test(t)) el.innerHTML = t; }
   const mo = new MutationObserver((list) => {
     for (const m of list) {
       if (m.type === 'characterData') { const hi = m.target.parentElement && m.target.parentElement.closest('#h-info'); if (hi) fixHtml(hi); else fixText(m.target); }

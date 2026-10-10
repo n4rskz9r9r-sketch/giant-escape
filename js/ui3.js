@@ -13,11 +13,14 @@
   const STREAM = /[?&]stream=1(\b|$)/.test(location.search);
   const STREAM_FPS = Math.max(5, Math.min(60, parseInt(new URLSearchParams(location.search).get('fps') || '30', 10) || 30)); // 방송 렌더 fps 상한
   if (STREAM) document.body.classList.add('stream');
+  // v19: 뷱 승리 목표 (기본 30마리). ?snakeWin=N 으로 바꿔 볼 수 있음 (3~60)
+  { const sw = parseInt(new URLSearchParams(location.search).get('snakeWin') || '', 10); if (sw >= 3 && sw <= 60) CFG.SNAKE_WIN_EATS = sw; }
+  const SW = () => CFG.SNAKE_WIN_EATS;
 
   const trainer = new GE.Trainer((Math.random() * 2 ** 32) >>> 0);
   const app = {
     trainer, game: null, map: null, seed: 0, playing: false, training: false, lastTick: 0, acc: 0,
-    score: { runner: 0, giant: 0, draw: 0 }, vision: [], visionVer: 0, loggedAt: {}, nextTimer: null, flashGenes: {},
+    score: { runner: 0, giant: 0, draw: 0, snake: 0 }, vision: [], visionVer: 0, loggedAt: {}, nextTimer: null, flashGenes: {},
     view: '2d', has3d: false, endAt: 0, fx2d: [], fxSeen: 0,
   };
   window.__app = app;
@@ -53,7 +56,7 @@
       t,
       runner: { x: rx, y: ry, f: rf, dx: bx - ax, dy: by - ay, sprint: g.runner.sprintLeft > 0, boost: g.runner.boost > 0, cloak: g.runner.cloak > 0, hasKey: g.keysHeld > 0, gem: g.runner.gem >= 0, onPlate: plateIdx, jump },
       giants: g.giants.map((G) => { const [x, y, f] = lerpPath(G.path, t); return { x, y, f, fx: G.facing[0], fy: G.facing[1], dash: G.dashLeft > 0 || G.path.length > 2, ban: G.doorBan > 0 || G.keyBan > 0, smashReady: G.smashCd <= 0, stun: G.stun > 0, blind: G.blind > 0, track: G.track > 0, out: G.out > 0, outSec: Math.ceil(G.out / tpsNow()), home: (() => { const h = g.map.giantStarts[G.id]; return { x: h % CFG.W, y: ((h / CFG.W) | 0) % FH, f: flo(h) }; })() }; }),
-      snakes: g.snakes.map((S) => ({ f: S.floor, hidden: S.hidden > 0, len: S.body.length, segs: S.body.map((c, j) => { const a = S.prevBody[Math.min(j, S.prevBody.length - 1)], [x0, y0, f0] = xyf(a), [x1, y1, f1] = xyf(c); return Math.abs(x1 - x0) + Math.abs(y1 - y0) > 1.5 ? { x: x1, y: y1, f: f1 } : { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t, f: f0 + (f1 - f0) * t }; }) })),
+      snakes: g.snakes.map((S) => ({ f: S.floor, hidden: S.hidden > 0, stun: S.stun > 0, len: S.body.length, segs: S.body.map((c, j) => { const a = S.prevBody[Math.min(j, S.prevBody.length - 1)], [x0, y0, f0] = xyf(a), [x1, y1, f1] = xyf(c); return Math.abs(x1 - x0) + Math.abs(y1 - y0) > 1.5 ? { x: x1, y: y1, f: f1 } : { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t, f: f0 + (f1 - f0) * t }; }) })),
     };
   }
   // 지금 보여줄 층: 자동(도망자가 있는 층) / 1F / 2F. 1인칭과 방송은 항상 도망자 층
@@ -147,7 +150,7 @@
       const h0 = sn.segs[0]; c.globalAlpha = fog && !seen[base + Math.round(h0.y) * W + Math.round(h0.x)] ? (mini ? 0.35 : 0.45) : 1; // 안개 속 뷱은 흐리게 (거인과 같은 규칙)
       for (let j = sn.segs.length - 1; j >= 1; j--) { const p = sn.segs[j]; if (Math.round(p.f) !== vf) continue; c.fillStyle = j % 2 ? '#8bd94a' : '#2fae4a'; c.beginPath(); c.arc((p.x + .5) * T, (p.y + .5) * T, T * (mini ? 0.45 : 0.38) * (1 - j / (sn.segs.length * 2.2)), 0, 7); c.fill(); }
       const h = sn.segs[0]; if (Math.round(h.f) !== vf) { c.globalAlpha = 1; return; } c.fillStyle = '#1f8a38'; c.beginPath(); c.arc((h.x + .5) * T, (h.y + .5) * T, T * (mini ? 0.55 : 0.48), 0, 7); c.fill();
-      if (!mini) emoji(c, '🐍', (h.x + .5) * T, (h.y + .5) * T, T * 0.85);
+      if (!mini) { emoji(c, '🐍', (h.x + .5) * T, (h.y + .5) * T, T * 0.85); if (sn.stun) emoji(c, '💫', (h.x + .5) * T, (h.y - .45) * T + Math.sin(now / 120) * T * 0.06, T * 0.6); }
       c.globalAlpha = 1;
     });
     if (g.result !== 'giant' && Math.round(s.runner.f) === vf) {
@@ -245,10 +248,11 @@
     if (!Hs.length) { cctx.textAlign = 'center'; cctx.fillText('아직 학습 기록이 없습니다', pad.l + pw / 2, pad.t + ph / 2 - 14); return; }
     const data = Hs.slice(-300), n = data.length, win = Math.max(1, Math.min(10, Math.round(n / 8)));
     const X = (k) => pad.l + (n === 1 ? pw / 2 : (pw * k) / (n - 1)), Y = (v) => pad.t + ph * (1 - v);
-    for (const [key, col] of [['runner', '#4fc3ff'], ['giant', '#ff5d5d']]) {
-      cctx.fillStyle = col + '44'; data.forEach((d, k) => cctx.fillRect(X(k) - 1, Y(d[key] + d.draw / 2) - 1, 2, 2));
+    for (const [key, col] of [['runner', '#4fc3ff'], ['giant', '#ff5d5d'], ['snake', '#7dff9a']]) {
+      const val = (d) => (d[key] || 0) + (key === 'snake' ? 0 : d.draw / 2);
+      cctx.fillStyle = col + '44'; data.forEach((d, k) => cctx.fillRect(X(k) - 1, Y(val(d)) - 1, 2, 2));
       cctx.strokeStyle = col; cctx.lineWidth = 2; cctx.beginPath();
-      data.forEach((_, k) => { let s = 0, c = 0; for (let j = Math.max(0, k - win + 1); j <= k; j++) { s += data[j][key] + data[j].draw / 2; c++; } const v = s / c; k ? cctx.lineTo(X(k), Y(v)) : cctx.moveTo(X(k), Y(v)); });
+      data.forEach((_, k) => { let s = 0, c = 0; for (let j = Math.max(0, k - win + 1); j <= k; j++) { s += val(data[j]); c++; } const v = s / c; k ? cctx.lineTo(X(k), Y(v)) : cctx.moveTo(X(k), Y(v)); });
       cctx.stroke();
     }
     cctx.fillStyle = '#9aa3c7'; cctx.textBaseline = 'top';
@@ -278,10 +282,17 @@
       gbox.querySelector(`[data-role="${k}"]`).textContent = team.length > 6 ? roleShort(g) : GE.roleOf(g);
       for (const d of GE.GIANT_GENES) { const el = gbox.querySelector(`[data-k="${d.key}"][data-g="${k}"]`); el.firstChild.style.width = ((g[d.key] ?? 0) * 100).toFixed(1) + '%'; el.title = `거인${k + 1} ${d.label} ${Math.round(g[d.key] * 100)}`; el.classList.toggle('flash', !!app.flashGenes['g' + k + d.key]); }
     });
+    // v19: 뷱 유전자
+    const sbox = $('genes-snake'), sgn = trainer.snake.genes;
+    if (sbox) {
+      if (!sbox.children.length) sbox.innerHTML = GE.SNAKE_GENES.map((d) => `<div class="gene" data-k="${d.key}"><div class="name"><span>${d.label}</span><span class="v"></span></div><div class="bar"><i></i></div></div>`).join('');
+      for (const d of GE.SNAKE_GENES) { const el = sbox.querySelector(`[data-k="${d.key}"]`), v = sgn[d.key] ?? 0; el.querySelector('.v').textContent = Math.round(v * 100); el.querySelector('i').style.width = (v * 100).toFixed(1) + '%'; el.classList.toggle('flash', !!app.flashGenes['s' + d.key]); }
+      $('lv-snake').textContent = trainer.snake.level;
+    }
     $('lv-runner').textContent = trainer.runner.level; $('lv-giant').textContent = trainer.giant.level;
     $('st-gen').textContent = trainer.generation;
     const tw = trainer.trainWins;
-    $('sc-train').textContent = `훈련 경기 ${trainer.rounds}판 (도망자 ${tw.runner} · 거인팀 ${tw.giant} · 무 ${tw.draw})`;
+    $('sc-train').textContent = `훈련 경기 ${trainer.rounds}판 (도망자 ${tw.runner} · 거인팀 ${tw.giant} · 뷱 ${tw.snake || 0} · 무 ${tw.draw})`;
   }
 
   // ---------- 로그 ----------
@@ -306,10 +317,10 @@
     const changed = app.game && (app.game.smashed.length > 0 || app.game.map !== app.map);
     if (!newMap && app.map && changed && app.has3d) window.Render3D.setMap(app.map); // 부서진 벽·바리케이드 복구
     if (newMap || !app.map) { app.seed = (Math.random() * 2 ** 32) >>> 0; app.map = GE.generateMap(app.seed); if (app.has3d) window.Render3D.setMap(app.map); }
-    app.game = new GE.Game(app.map, { ...trainer.runner.genes }, trainer.giant.team.map((g) => ({ ...g })), app.seed);
+    app.game = new GE.Game(app.map, { ...trainer.runner.genes }, trainer.giant.team.map((g) => ({ ...g })), app.seed, { ...trainer.snake.genes });
     app.loggedAt = {}; app.acc = 0; app.endAt = 0; app.smashSeen = 0; app.fxSeen = 0; app.fx2d = []; app.seenCount = -1; stageEl.classList.remove('cloaked');
     $('overlay').classList.add('hidden');
-    log(`— 새 경기 (도망자 Lv.${trainer.runner.level} vs 거인팀 Lv.${trainer.giant.level}: ${trainer.giant.team.map((g, k) => `${k + 1}번 ${GE.roleOf(g)}`).join(', ')}) —`, 'end');
+    log(`— 새 경기 (도망자 Lv.${trainer.runner.level} vs 거인팀 Lv.${trainer.giant.level}: ${trainer.giant.team.map((g, k) => `${k + 1}번 ${GE.roleOf(g)}`).join(', ')} vs 뷱 Lv.${trainer.snake.level}) —`, 'end');
     updateStatus();
   }
   function updateStatus() {
@@ -323,13 +334,13 @@
     $('st-floor').textContent = `${flo(g.runner.pos) + 1}층`;
     { const gbox = $('genes-giant'), compact = g.giants.length > 6; g.giants.forEach((G, k) => { const el = gbox.querySelector(`[data-cd="${k}"]`); if (!el) return; const sec = Math.ceil(G.smashCd / tpsNow()); el.textContent = G.smashCd <= 0 ? (compact ? '✓' : '준비') : `${sec}${compact ? '' : '초'}`; el.classList.toggle('ready', G.smashCd <= 0); el.title = `거인${k + 1} ${G.smashCd <= 0 ? '벽부수기 준비' : '벽부수기 ' + sec + '초 남음'}`; }); }
     $('st-mission').textContent = g.missionText();
-    $('st-snake').textContent = g.snakes.map((S) => `${S.floor + 1}F ${S.hidden > 0 ? '숨음' : S.mode}(${S.body.length})`).join(' · ');
+    $('st-snake').textContent = `뷱 ${g.snakeAte.giants}/${SW()} · ` + g.snakes.map((S) => `${S.floor + 1}F ${S.hidden > 0 ? '숨음' : S.mode}(${S.body.length})`).join(' · ');
     $('st-gmode').textContent = g.giants.map((G, k) => `${k + 1}:${G.out > 0 ? `🐍배 속 ${Math.ceil(G.out / tpsNow())}초` : G.stun > 0 ? '기절💫' : (G.mode + (flo(G.pos) ? '²' : ''))}${G.dashLeft > 0 ? '💨' : ''}${G.doorBan > 0 || G.keyBan > 0 ? '✨' : ''}${G.smashCd <= 0 ? '💥' : ''}${G.blind > 0 ? '🌫️' : ''}${G.track > 0 ? '🐾' : ''}${G.inv.roar ? '🔊' : ''}${G.inv.tracker ? '🐾' : ''}${G.inv.barricade ? '🚧' : ''}`).join(' ');
     let sc = 0; const sn = g.runner.seen; for (let i = 0; i < sn.length; i++) sc += sn[i]; if (sc !== app.seenCount) { app.seenCount = sc; app.seenVer = (app.seenVer || 0) + 1; }
     const set = new Set();
     g.giants.forEach((G, k) => { if (G.out > 0) return; for (const i of g.map.floor) if (GE.giantSees(g, k, i)) set.add(i); });
     app.vision = [...set]; app.visionVer++;
-    if (STREAM) { hudStatus(); hudAmmo(); }
+    if (STREAM) { hudStatus(); hudAmmo(); hudSnake(); }
     fpvHudUpdate(); soundDanger();
   }
   // 샷건(기본 스킬): n/2 + 장전 진행률
@@ -378,6 +389,7 @@
       else if (e.t === 'smoke' || e.t === 'cloak' || e.t === 'boost') SND(e.t);
       else if (e.t === 'lever' || e.t === 'gem' || e.t === 'pedestal') SND('mission');
       else if (e.t === 'chest') SND('door');
+      else if (e.t === 'tailgrab' || e.t === 'snakeStun') SND('block');
     }
   }
   function soundTick(g, keys0, left0) {
@@ -392,11 +404,12 @@
   function onRoundEnd() {
     const g = app.game, r = g.result; app.endAt = performance.now();
     app.score[r]++;
-    SND(r === 'runner' ? 'win' : r === 'giant' ? (g.catcher === -2 ? 'gulp' : 'caught') : 'respawn'); if (r === 'giant' && g.catcher === -2) setTimeout(() => SND('caught'), 450);
+    SND(r === 'runner' ? 'win' : r === 'giant' ? (g.catcher === -2 ? 'gulp' : 'caught') : r === 'snake' ? 'snakeWin' : 'respawn'); if (r === 'giant' && g.catcher === -2) setTimeout(() => SND('caught'), 450);
+    if (app.score.snake == null) app.score.snake = 0;
     app.snakeStats = app.snakeStats || { giants: 0, runner: 0, pills: 0 };
     app.snakeStats.giants += g.snakeAte.giants; app.snakeStats.runner += g.snakeAte.runner; app.snakeStats.pills += g.snakeAte.pills;
     $('sc-snake').textContent = `🐍 뷱이 먹은 거인 ${app.snakeStats.giants} · 도망자 ${app.snakeStats.runner} · 알약 ${app.snakeStats.pills}`;
-    $('sc-runner').textContent = app.score.runner; $('sc-giant').textContent = app.score.giant; $('sc-draw').textContent = app.score.draw;
+    $('sc-runner').textContent = app.score.runner; $('sc-giant').textContent = app.score.giant; $('sc-draw').textContent = app.score.draw; $('sc-snakewin').textContent = app.score.snake;
     const added = trainer.recordVisible(r, g.catcher);
     if (added.length) {
       const msg = `도망자 ${trainer.growWins}승! 거인이 한 명 늘었다 👹 (거인${added.map((k) => k + 1).join('·')} 등장 — 이제 ${trainer.giantCount}명)`;
@@ -404,8 +417,8 @@
       renderGenes(); saveQuiet();
     }
     updateGiantCount();
-    $('overlayText').textContent = r === 'runner' ? `🏃 문 ${g.escapeDoor} 탈출 성공!` : r === 'giant' ? (g.catcher === -2 ? '🐍 뷱이 도망자를 삼켰다!' : `👹 거인${g.catcher + 1}이 잡아먹었다!`) : '⏳ 시간 초과';
-    $('overlayText').style.color = r === 'runner' ? '#4fc3ff' : r === 'giant' ? '#ff5d5d' : '#cfd3ef';
+    $('overlayText').textContent = r === 'runner' ? `🏃 문 ${g.escapeDoor} 탈출 성공!` : r === 'giant' ? (g.catcher === -2 ? '🐍 뷱이 도망자를 삼켰다!' : `👹 거인${g.catcher + 1}이 잡아먹었다!`) : r === 'snake' ? `🐍👑 뷱 승리! 거인 ${g.snakeAte.giants}마리 꿀꺽` : '⏳ 시간 초과';
+    $('overlayText').style.color = r === 'runner' ? '#4fc3ff' : r === 'giant' ? '#ff5d5d' : r === 'snake' ? '#7dff9a' : '#cfd3ef';
     $('overlaySub').textContent = `${g.turn}턴 · 경기 후 복기 훈련 중…`;
     $('overlay').classList.remove('hidden');
     setTimeout(() => {
@@ -424,10 +437,10 @@
     app.flashGenes = {};
     changes.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
     changes.slice(0, 4).forEach((c) => {
-      app.flashGenes[c.side === 'runner' ? 'r' + c.key : 'g' + c.gi + c.key] = 1;
+      app.flashGenes[c.side === 'runner' ? 'r' + c.key : c.side === 'snake' ? 's' + c.key : 'g' + c.gi + c.key] = 1;
       log(`🧠 ${c.text} (${c.label} ${c.delta > 0 ? '▲' : '▼'}${Math.round(Math.abs(c.delta) * 100)})`, 'learn', `${trainer.generation}세대`);
     });
-    if (rec) log(`📊 ${trainer.generation}세대 훈련 ${rec.n}판: 도망자 ${Math.round(rec.runner * 100)}% · 거인팀 ${Math.round(rec.giant * 100)}%`, 'learn', `${trainer.generation}세대`);
+    if (rec) log(`📊 ${trainer.generation}세대 훈련 ${rec.n}판: 도망자 ${Math.round(rec.runner * 100)}% · 거인팀 ${Math.round(rec.giant * 100)}% · 뷱 ${Math.round((rec.snake || 0) * 100)}%`, 'learn', `${trainer.generation}세대`);
     renderGenes(); drawChart();
   }
   function setPlaying(p) { app.playing = p; $('btnPlay').textContent = p ? '⏸ 일시정지' : '▶ 시작'; if (p && app.game && app.game.result) newRound(true); soundDanger(); }
@@ -438,20 +451,21 @@
     setPlaying(false); clearTimeout(app.nextTimer);
     app.training = true; soundDanger(); document.querySelectorAll('button,select').forEach((b) => (b.disabled = true));
     $('trainOverlay').classList.remove('hidden');
-    const before = { r: { ...trainer.runner.genes }, t: trainer.giant.team.map((g) => ({ ...g })) };
-    const lv0 = { r: trainer.runner.level, g: trainer.giant.level };
-    let done = 0; const tot = { r: 0, g: 0, d: 0, n: 0 };
+    const before = { r: { ...trainer.runner.genes }, t: trainer.giant.team.map((g) => ({ ...g })), s: { ...trainer.snake.genes } };
+    const lv0 = { r: trainer.runner.level, g: trainer.giant.level, s: trainer.snake.level };
+    let done = 0; const tot = { r: 0, g: 0, d: 0, s: 0, n: 0 };
     const chunk = () => {
       const t0 = performance.now();
-      while (done < gens && performance.now() - t0 < 40) { const o = trainer.trainGeneration(); done++; tot.r += o.rec.runner * o.n; tot.g += o.rec.giant * o.n; tot.d += o.rec.draw * o.n; tot.n += o.n; }
+      while (done < gens && performance.now() - t0 < 40) { const o = trainer.trainGeneration(); done++; tot.r += o.rec.runner * o.n; tot.g += o.rec.giant * o.n; tot.d += o.rec.draw * o.n; tot.s += (o.rec.snake || 0) * o.n; tot.n += o.n; }
       $('trainBar').style.width = (100 * done) / gens + '%';
-      $('trainText').textContent = `${done}/${gens}세대 · ${tot.n}판 · 도망자 ${Math.round((100 * tot.r) / tot.n)}% / 거인팀 ${Math.round((100 * tot.g) / tot.n)}%`;
+      $('trainText').textContent = `${done}/${gens}세대 · ${tot.n}판 · 도망자 ${Math.round((100 * tot.r) / tot.n)}% / 거인팀 ${Math.round((100 * tot.g) / tot.n)}% / 뷱 ${Math.round((100 * tot.s) / tot.n)}%`;
       renderGenes(); drawChart();
       if (done < gens) return setTimeout(chunk, 0);
       const changes = [];
       for (const d of GE.RUNNER_GENES) { const delta = trainer.runner.genes[d.key] - before.r[d.key]; if (Math.abs(delta) >= 0.12) changes.push({ side: 'runner', key: d.key, label: d.label, delta, text: delta > 0 ? d.up : d.down }); }
       trainer.giant.team.forEach((g, k) => { for (const d of GE.GIANT_GENES) { const delta = g[d.key] - before.t[k][d.key]; if (Math.abs(delta) >= 0.15) changes.push({ side: 'giant', gi: k, key: d.key, label: `거인${k + 1} ${d.label}`, delta, text: (delta > 0 ? d.up : d.down).replace(/^거인이/, `거인${k + 1}이`) }); } });
-      log(`⚡ 빠른 훈련 ${gens}세대(${tot.n}판) 완료 — 도망자 ${Math.round((100 * tot.r) / tot.n)}% · 거인팀 ${Math.round((100 * tot.g) / tot.n)}% · 레벨 도망자 +${trainer.runner.level - lv0.r}, 거인팀 +${trainer.giant.level - lv0.g}`, 'learn', `${trainer.generation}세대`);
+      for (const d of GE.SNAKE_GENES) { const delta = trainer.snake.genes[d.key] - before.s[d.key]; if (Math.abs(delta) >= 0.12) changes.push({ side: 'snake', key: d.key, label: d.label, delta, text: delta > 0 ? d.up : d.down }); }
+      log(`⚡ 빠른 훈련 ${gens}세대(${tot.n}판) 완료 — 도망자 ${Math.round((100 * tot.r) / tot.n)}% · 거인팀 ${Math.round((100 * tot.g) / tot.n)}% · 뷱 ${Math.round((100 * tot.s) / tot.n)}% · 레벨 도망자 +${trainer.runner.level - lv0.r}, 거인팀 +${trainer.giant.level - lv0.g}, 뷱 +${trainer.snake.level - lv0.s}`, 'learn', `${trainer.generation}세대`);
       reportLearning(changes.slice(0, 8), null);
       $('trainOverlay').classList.add('hidden');
       document.querySelectorAll('button,select').forEach((b) => (b.disabled = false));
@@ -481,8 +495,8 @@
       if (!raw) { if (!silent) log('저장된 두뇌가 없습니다', 'spot'); return false; }
       const o = JSON.parse(raw);
       if (!trainer.load(o.trainer)) { if (!silent) log('저장본 형식이 달라 불러오지 못했습니다', 'spot'); return false; }
-      app.score = o.score || app.score;
-      $('sc-runner').textContent = app.score.runner; $('sc-giant').textContent = app.score.giant; $('sc-draw').textContent = app.score.draw;
+      app.score = Object.assign({ runner: 0, giant: 0, draw: 0, snake: 0 }, o.score || app.score); // v19: 예전 점수에는 뷱 승이 없음 → 0
+      $('sc-runner').textContent = app.score.runner; $('sc-giant').textContent = app.score.giant; $('sc-draw').textContent = app.score.draw; $('sc-snakewin').textContent = app.score.snake;
       renderGenes(); drawChart(); updateGiantCount(); newRound(true);
       log(`📂 두뇌 불러오기 완료 (${trainer.generation}세대, ${new Date(o.savedAt).toLocaleString(EN ? 'en-US' : 'ko-KR')} 저장본)`, 'learn');
       return true;
@@ -490,8 +504,8 @@
   }
   function resetBrains() {
     if (!confirm('도망자와 거인팀의 학습 내용과 점수를 모두 지울까요? (저장본은 그대로 남습니다)')) return;
-    trainer.reset(); app.score = { runner: 0, giant: 0, draw: 0 }; app.flashGenes = {};
-    ['sc-runner', 'sc-giant', 'sc-draw'].forEach((id) => ($(id).textContent = '0'));
+    trainer.reset(); app.score = { runner: 0, giant: 0, draw: 0, snake: 0 }; app.flashGenes = {};
+    ['sc-runner', 'sc-giant', 'sc-draw', 'sc-snakewin'].forEach((id) => ($(id).textContent = '0'));
     $('log').innerHTML = ''; log(`🧹 두뇌 초기화 — 모두 1레벨부터 다시 배웁니다 (거인 ${CFG.GIANTS}명으로)`, 'learn');
     renderGenes(); drawChart(); updateGiantCount(); newRound(true);
   }
@@ -618,19 +632,20 @@
     hud = document.createElement('div'); hud.className = 'hud';
     hud.innerHTML = `
       <div class="hud-top"><span class="live">● LIVE</span><span class="title">👹👹👹👹 거인과 도망자 3D — AI 실시간 대결 · 공진화</span></div>
-      <div class="hud-score"><span class="r">🏃 도망자 <b id="h-r">0</b></span><span class="vs">:</span><span class="g"><b id="h-g">0</b> 거인팀 👹</span><span class="d">무 <b id="h-d">0</b></span></div>
+      <div class="hud-score"><span class="r">🏃 도망자 <b id="h-r">0</b></span><span class="vs">:</span><span class="g"><b id="h-g">0</b> 거인팀 👹</span><span class="vs">:</span><span class="s"><b id="h-s">0</b> 뷱 🐍</span><span class="d">무 <b id="h-d">0</b></span></div>
       <div class="hud-grow" id="h-grow"></div>
       <div class="hud-info" id="h-info"></div>
       <div class="hud-status" id="h-status"></div>
       <div class="hud-ammo" id="h-ammo"><div class="am-top"><span class="am-ic">🔫</span><span class="am-name">샷건</span><b id="h-ammoN">2/2</b><span class="am-shells" id="h-shells"></span></div><div class="am-bar"><i id="h-reload"></i></div><div class="am-sub" id="h-ammoSub">장전 완료</div></div>
+      <div class="hud-snake" id="h-snake"><div class="sn-top"><span class="sn-ic">🐍</span><span class="sn-name">뷱</span><b id="h-snakeN">0/30</b></div><div class="sn-bar"><i id="h-snakeBar"></i></div><div class="sn-sub" id="h-snakeSub">거인을 먹으면 뷱 승리</div></div>
       <ul class="hud-log" id="h-log"></ul>`;
     stageEl.appendChild(hud);
   }
   function hudUpdate() {
     if (!hud) return;
-    $('h-r').textContent = app.score.runner; $('h-g').textContent = app.score.giant; $('h-d').textContent = app.score.draw;
+    $('h-r').textContent = app.score.runner; $('h-g').textContent = app.score.giant; $('h-d').textContent = app.score.draw; $('h-s').textContent = app.score.snake || 0;
     const recent = trainer.history.slice(-20); let rr = 0, n = 0; for (const h of recent) { rr += h.runner * h.n; n += h.n; }
-    $('h-info').innerHTML = `🧬 <b>${trainer.generation}</b>세대 · 훈련 ${trainer.rounds.toLocaleString(EN ? 'en-US' : 'ko-KR')}판 · 🏃 Lv.<b>${trainer.runner.level}</b> · 👹 Lv.<b>${trainer.giant.level}</b>` +
+    $('h-info').innerHTML = `🧬 <b>${trainer.generation}</b>세대 · 훈련 ${trainer.rounds.toLocaleString(EN ? 'en-US' : 'ko-KR')}판 · 🏃 Lv.<b>${trainer.runner.level}</b> · 👹 Lv.<b>${trainer.giant.level}</b> · 🐍 Lv.<b>${trainer.snake.level}</b>` +
       (n ? ` · 최근 도망자 승률 <b>${Math.round((100 * rr) / n)}%</b>` : '') +
       `<br>${trainer.giant.team.map((g, k) => `<span style="color:${GCOL[k]}">${trainer.giantCount > 6 ? k + 1 : '거인' + (k + 1)} ${trainer.giantCount > 6 ? roleShort(g) : GE.roleOf(g)}</span>`).join(' · ')}`;
     updateGiantCount();
@@ -638,7 +653,7 @@
   function hudStatus() {
     const g = app.game; if (!hud || !g) return;
     const d = app.nearD ?? 999;
-    $('h-status').textContent = `🏢 ${flo(g.runner.pos) + 1}층 · 🧩 ${g.missionText()} · 🐍 거인 ${g.snakeAte.giants}마리 꿀꺽 · ⏱ 턴 ${g.turn} · 🔑 ${g.keysHeld}/${app.map.keys.length}${g.keysLeft.length ? '' : ' 문 열림!'} · 📏 거인까지 ${d >= 999 ? '-' : d + '칸'} · 🏃 ${g.runner.mode}${g.runner.sprintLeft > 0 ? ' ⚡' : ''}${g.runner.boost > 0 ? ' 🚀' : ''}${g.runner.cloak > 0 ? ' 👻' : ''}${invText(g.runner.inv, ' · 🎒 ', true)}${g.giants.some((G) => G.stun > 0) ? ' · 💫 기절 ' + g.giants.filter((G) => G.stun > 0).map((G) => G.id + 1).join('·') : ''}`;
+    $('h-status').textContent = `🏢 ${flo(g.runner.pos) + 1}층 · 🧩 ${g.missionText()} · 🐍 뷱 ${g.snakeAte.giants}/${SW()} · ⏱ 턴 ${g.turn} · 🔑 ${g.keysHeld}/${app.map.keys.length}${g.keysLeft.length ? '' : ' 문 열림!'} · 📏 거인까지 ${d >= 999 ? '-' : d + '칸'} · 🏃 ${g.runner.mode}${g.runner.sprintLeft > 0 ? ' ⚡' : ''}${g.runner.boost > 0 ? ' 🚀' : ''}${g.runner.cloak > 0 ? ' 👻' : ''}${invText(g.runner.inv, ' · 🎒 ', true)}${g.giants.some((G) => G.stun > 0) ? ' · 💫 기절 ' + g.giants.filter((G) => G.stun > 0).map((G) => G.id + 1).join('·') : ''}`;
   }
   function hudAmmo() {
     const g = app.game; if (!hud || !g) return;
@@ -648,6 +663,16 @@
     $('h-reload').style.width = Math.round((n >= max ? 1 : fr) * 100) + '%';
     $('h-ammo').classList.toggle('full', n >= max); $('h-ammo').classList.toggle('empty', n === 0);
     $('h-ammoSub').textContent = n >= max ? '장전 완료' : `장전 중… ${Math.round(fr * 100)}% (${CFG.SHOTGUN_RELOAD_SEC}초에 1발)`;
+  }
+  // v19: 뷱 진행도 (거인 n/30마리) — 목표에 가까울수록 빨갛게
+  function hudSnake() {
+    const g = app.game; if (!hud || !g || !$('h-snake')) return;
+    const e = g.snakeAte.giants, W = SW(), fr = Math.min(1, e / W), S = g.snakes[0];
+    $('h-snakeN').textContent = `${e}/${W}`;
+    $('h-snakeBar').style.width = Math.round(fr * 100) + '%';
+    $('h-snake').classList.toggle('hot', fr >= 0.7); $('h-snake').classList.toggle('won', g.result === 'snake');
+    const blocks = g.snakeBlocks.tail + g.snakeBlocks.shot;
+    $('h-snakeSub').textContent = g.result === 'snake' ? '👑 뷱 승리!' : S && S.hidden > 0 ? '🛡️ 땅속에 숨음' : S && S.stun > 0 ? '💫 기절' : (S ? S.mode : '') + (blocks ? ` · 🛡️ 막기 ${blocks}` : '');
   }
   function hudLog(text, cls) {
     if (!hud) return;
@@ -695,6 +720,7 @@
   { const pg = +(new URLSearchParams(location.search).get('giants') || 0); if (pg > trainer.giantCount && pg <= CFG.GIANTS_MAX) { app.preview = true; while (trainer.giantCount < pg) trainer.addGiant(); renderGenes(); updateGiantCount(); newRound(true); log(`👀 미리보기: 거인 ${pg}명 (저장 안 함)`, 'grow'); } }
   app.testRunnerWins = (n) => { for (let i = 0; i < n; i++) { const added = trainer.recordVisible('runner', -1); if (added.length) log(`도망자 ${trainer.growWins}승! 거인이 한 명 늘었다 👹 (거인${added.map((k) => k + 1).join('·')} 등장 — 이제 ${trainer.giantCount}명)`, 'grow'); } renderGenes(); updateGiantCount(); hudUpdate(); };
   log(`👋 ▶ 시작을 누르면 도망자 1명과 거인 ${trainer.giantCount}명이 2층 미로에서 대결합니다. 💥 거인은 30초마다 벽을 부술 수 있고, 도망자가 ${CFG.WINS_PER_GIANT}승 할 때마다 거인이 1명씩 늘어납니다(최대 ${CFG.GIANTS_MAX}명).`); log(` 🧰 열쇠는 잠긴 상자 안 — 미션(🕹️스위치 켜기 · 💎보석 옮기기 · ⏳발판 버티기)을 풀어야 열립니다. 🐍 뷱은 알약💊을 먹고 길어지며 거인을 삼킵니다 — 도망자는 뷱을 그냥 통과합니다(꼬리를 잡으면 잠시 숨음). 🌫 도망자는 직접 본 곳만 기억합니다(전체 지도 보기로 전체 공개). 🔫 도망자 기본 스킬 샷건: 최대 ${CFG.SHOTGUN_AMMO}발, ${CFG.SHOTGUN_RELOAD_SEC}초마다 1발 장전, 맞으면 ${CFG.STUN_SEC}초 기절(멀수록 잘 빗나감). 🎒 도망자 아이템: 💨연막탄 🚀부스터 👻투명망토 🤸벽넘기 🧱바리케이드 · 거인 아이템: 🔊포효 🐾냄새 추적기 🚧바리케이드. 💥 거인은 각자 30초 쿨타임으로 안쪽 벽·바리케이드를 부숩니다(바깥 벽·문 근처·계단은 불가). 👀 도망자 시점 버튼으로 1인칭으로 볼 수 있어요. ⚡ 빠른 훈련으로 수백 판을 순식간에 학습시킬 수 있어요.`, 'learn');
+  log(`🐍 새 규칙: 뷱도 학습합니다! 한 판에 거인 ${SW()}마리를 먹으면 뷱 승리(도망자·거인팀 모두 패배) — 도망자는 꼬리 잡기와 샷건으로 뷱을 막습니다.`, 'snake');
   setView(window.Render3D ? '3d' : '2d');
   if (window.Render3D) init3D();
   if (STREAM) streamStart();
