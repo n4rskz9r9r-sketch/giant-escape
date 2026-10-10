@@ -441,9 +441,9 @@ const _bv = new THREE.Vector3();
 function updateBoulders(s, now, dt) {
   const bs = s.boulders || [];
   boulderObjs.forEach((o, i) => {
-    const b = bs[i]; if (!b) { o.visible = false; return; }
+    const b = bs[i]; if (!b || b.gone) { o.visible = false; return; }
     o.visible = onF(b.cell);
-    _bv.set(wx(b.cell % W), fy(b.cell), wzc(b.cell));
+    _bv.set(wx(b.cell % W), fy(b.cell) + (b.carried ? 2.1 : 0), wzc(b.cell)); // v24: 거인이 머리 위로 들고 나름
     const dx = _bv.x - o.position.x, dz = _bv.z - o.position.z, dist = Math.hypot(dx, dz);
     if (dist > 2.5 || Math.abs(_bv.y - o.position.y) > 0.5) o.position.copy(_bv); // 제자리로 굴러감·층 이동: 바로
     else if (dist > 0.001) {
