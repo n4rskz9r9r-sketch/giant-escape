@@ -10,7 +10,9 @@
     W: 31, H: 21, FLOORS: 2, STAIRS: 2,   // 층마다 31×21, 2층 (계단 2곳)            // 홀수 (미로) — 거인 4명이라 넓힘
     KEYS: 2,
     GIANTS: 4,               // 기본 거인 수 (도망자가 WINS_PER_GIANT승 할 때마다 1명씩 늘어 최대 GIANTS_MAX)
-    GIANTS_MAX: 10, WINS_PER_GIANT: 5,
+    SCOUT_CD: 200, SCOUT_LIFE: 70, SCOUT_STEPS: 2, SCOUT_FOOL: 8,  // v25 길 찾는 분신: 쿨타임 20초, 7초 동안 한 턴에 2칸씩 모르는 곳을 탐색해 도망자 기억에 넣음 (거인이 닿으면 사라짐 · 거인은 8칸 안에서 보이면 속을 수 있음)
+    TELE_CD: 300, TELE_MIN: 12, TELE_MAX: 24, TELE_TRIG: 4,  // v25 순간이동: 쿨타임 30초(고정), 같은 층 12~24칸(길 기준) 떨어진 안전한 곳으로
+    GIANTS_MAX: 10, WINS_PER_GIANT: 5, LOSSES_PER_DROP: 5, GIANT_CROWD_REST: 0.0,  // v25: 거인 5연승마다 거인 -1 (최소 GIANTS) · 거인이 많을수록 더 자주 쉼
     TPS: 10,                 // 기본 속도(턴/초). '초' 단위 규칙은 이 속도 기준으로 턴으로 바꿈 (샷건 기절 3초 = 30턴, 뷱 소화·거인 부활 5초 = 50턴)
     SMASH_COOLDOWN_SEC: 30,  // 거인마다 기본 능력 '벽 부수기': 30초(300턴)에 한 번
     SMASH_FIRST_SEC: 10,     // 판 시작 후 첫 벽 부수기까지 (10초)
@@ -32,11 +34,11 @@
     // 뷱(뱀): 전체 1마리(계단으로 두 층을 오감), 거인만 잡아먹음 (v16: 도망자는 뷱을 그냥 통과). 꼬리를 잡으면 잠시 땅속으로 숨음
     SNAKES: 1, SNAKES_PER_FLOOR: 1, SNAKE_LEN: 4, SNAKE_MAX: 18, SNAKE_GROW_GIANT: 2, SNAKE_GROW_PILL: 1, SNAKE_SENSE: 1, SNAKE_SKIP: 0, SNAKE_PREFER_GIANT: 2,
     SNAKE_DIGEST_SEC: 3,     // v21: 5→3, 뷱에게 먹힌 거인은 3초(30턴) 뒤 출발점에서 부활
-    SNAKE_HIDE: 40, SNAKE_REST: 20,  // v21: 뷱은 매 턴 이동(빨라짐), 먹은 뒤 20턴 소화
+    SNAKE_HIDE: 40, SNAKE_REST: 40,  // v25: 뷱은 매 턴 이동, 먹은 뒤 40턴 + 먹은 수×25턴 소화 (8마리 승리라 소화를 길게)
     // v19: 뷱도 학습하는 세 번째 편. 한 판에 거인을 SNAKE_WIN_EATS마리 먹으면 뷱 승리 (도망자·거인 모두 패배)
-    SNAKE_WIN_EATS: 20,      // v21: 12→20 (한 판 기준). 뷱은 더 빨라졌지만 뷱 승리는 여전히 드묾
+    SNAKE_WIN_EATS: 8,       // v25: 20→8 (한 판 기준). 경고 4·6·7마리째. 뷱 승리는 여전히 드물게 (소화 시간으로 조절)
     SNAKE_SENSE_MAX: 6,      // '사냥 감각' 유전자 1.0일 때 거인을 알아채는 미로 거리 (기본 1 + 6)
-    SNAKE_REST_PER_EAT: 6,  // v20: 배가 부를수록 소화가 느림 — 먹은 거인 1마리마다 소화 휴식 +6턴 (막판 몰아 먹기 방지)
+    SNAKE_REST_PER_EAT: 25,  // v20: 배가 부를수록 소화가 느림 — 먹은 거인 1마리마다 소화 휴식 +6턴 (막판 몰아 먹기 방지)
     SNAKE_LUNGE_CD: 30, SNAKE_LUNGE_MAX: 3,  // 달려들기: 가까운 거인에게 한 턴에 2칸, 쿨다운 30턴
     SNAKE_SPAWN_SAFE: 4,     // 뷱 머리가 출발점에서 이 거리 안이면 거인은 다른 출발점에서 부활 (출발점 무한 사냥 방지)
     SNAKE_STUN_SEC: 3,       // 도망자 샷건에 맞은 뷱은 3초 기절 (못 움직이고 못 먹음)
@@ -515,6 +517,10 @@
     { key: 'delve', label: '지하 탐험', up: '도망자가 지하 미로를 더 오래, 더 깊이 탐험한다', down: '도망자가 지하보다 지상 목표에 집중한다' },
     { key: 'weaponSeek', label: '무기 찾기', up: '도망자가 지하에 숨겨진 거인 퇴치 무기를 찾아 헤맨다', down: '도망자가 전설의 무기를 찾느라 시간을 쓰지 않는다' },
     { key: 'slayHunt', label: '거인 사냥', up: '번개창을 들면 도망자가 탈출보다 거인 사냥(전멸 승리)을 노린다', down: '번개창을 들어도 도망자가 탈출을 우선한다' },
+    { key: 'ruleWeapon', label: '점수판 읽기', up: '도망자가 거인이 많거나 연패 중이면 무기(거인 처치 → 다음 판 거인 감소)를 더 노린다', down: '도망자가 점수판과 상관없이 늘 같은 계획으로 움직인다' },
+    { key: 'ruleClock', label: '시간 관리', up: '도망자가 남은 턴을 보며 막판엔 탈출·생존(무승부)을 우선한다', down: '도망자가 남은 시간을 신경 쓰지 않는다' },
+    { key: 'scoutUse', label: '길잡이 분신', up: '도망자가 길 찾는 분신을 자주 보내 모르는 곳을 미리 살핀다', down: '도망자가 길잡이 분신을 거의 쓰지 않는다' },
+    { key: 'teleUse', label: '순간이동', up: '도망자가 거인이 다가오면 일찍 순간이동으로 빠져나간다', down: '도망자가 순간이동을 잡히기 직전까지 아껴 둔다' },
     { key: 'dinoFear', label: '공룡 피하기', up: '도망자가 공룡 발소리가 들리면 멀리 돌아간다', down: '도망자가 공룡 옆을 아슬아슬하게 지나간다' },
   ];
   const GIANT_GENES = [
@@ -553,7 +559,7 @@
   ];
   function defaultSnake() { return { sHunt: 0.3, sChase: 0.3, sPill: 0.5, sCamp: 0.2, sFloor: 0.3, sAmbush: 0.2, sLunge: 0.3, sDodge: 0.3 }; }
   // Lv.1 초보 두뇌 (일부러 서툰 값). 거인은 처음부터 역할이 조금씩 다르게 출발
-  function defaultRunner() { return { danger: 0.5, flee: 0.35, greed: 0.7, loop: 0.3, predict: 0.5, memory: 0.4, keySafe: 0.35, sprint: 0.3, itemGreed: 0.4, panic: 0.4, shotgun: 0.4, barricade: 0.4, missionOrder: 0.4, plateNerve: 0.4, snakeFear: 0.5, snakeLure: 0.3, tailGrab: 0.3, vault: 0.4, snakeStop: 0.4, snakeShot: 0.3, delve: 0.8, weaponSeek: 0.8, dinoFear: 0.6, slayHunt: 0.5 }; }
+  function defaultRunner() { return { danger: 0.5, flee: 0.35, greed: 0.7, loop: 0.3, predict: 0.5, memory: 0.4, keySafe: 0.35, sprint: 0.3, itemGreed: 0.4, panic: 0.4, shotgun: 0.4, barricade: 0.4, missionOrder: 0.4, plateNerve: 0.4, snakeFear: 0.5, snakeLure: 0.3, tailGrab: 0.3, vault: 0.4, snakeStop: 0.4, snakeShot: 0.3, delve: 0.8, weaponSeek: 0.8, dinoFear: 0.6, slayHunt: 0.5, ruleWeapon: 0.5, ruleClock: 0.5, teleUse: 0.5, scoutUse: 0.5 }; }
   function defaultGiantOne(k) {
     const base = { stride: 0.5, intercept: 0.5, lookahead: 0.5, ambush: 0.3, dash: 0.1, patience: 0.3, scent: 0.2, exitGuard: 0.3, spread: 0.1, call: 0.2, smash: 0.3, roar: 0.4, tracker: 0.4, blockade: 0.3, guard: 0.3, snakeSense: 0.4, deepPatrol: 0.2, dinoDodge: 0.5, rockUse: 0.4, rockDoor: 0.4, rockSeek: 0.4 };
     if (k === 0) Object.assign(base, { intercept: 0.15, scent: 0.4 });           // 추격조
@@ -611,7 +617,7 @@
       this.rockStats = { pushes: 0, hatch: 0, door: 0, stairs: 0, resets: 0, refused: 0, found: 0, firstFound: -1, lift: 0, carried: 0, carryTry: 0 };
       this.rockKnown = this.boulders.map(() => false); this.gB1seen = new Uint8Array(map.W * map.H);
       // v23: 공룡 2마리 (서로 멀리서 출발, 안 겹침)
-      this.dinos = [];
+      this.dinos = []; this.teleStats = { used: 0, dist: 0 }; this.scouts = []; this.scoutStats = { used: 0, revealed: 0, popped: 0, fooled: 0, weapon: 0 };
       if (map.B1 >= 0 && map.dinoStarts && map.dinoStarts.length) {
         const W = map.W, ds = map.dinoStarts.filter((p) => map.g[p] === 0 && map.g[p + 1] === 0 && map.g[p + W] === 0 && map.g[p + W + 1] === 0), pool = ds.length ? ds : map.dinoStarts;
         for (let n = 0; n < CFG.DINOS; n++) {
@@ -641,8 +647,50 @@
       R.spearCd = CFG.SLAYER_CD; R.used++; this.kills++;
       this.fx.push({ t: 'slay', from: R.pos, to: G.pos, cell: G.pos, giant: k, turn: this.turn });
       const left = this.giants.filter((H) => !H.dead).length;
-      this.log('kill', `⚡ 도망자가 번개창으로 거인${k + 1}을 처치했다! ☠️ (이번 판 복귀 불가 · 남은 거인 ${left}명)`);
+      this.log('kill', `⚡ 도망자가 번개창으로 거인${k + 1}을 처치했다! ☠️ (다음 판까지 복귀 불가 · 남은 거인 ${left}명)`);
       if (left === 0) { this.winBy = 'slay'; this.finish('runner'); } // v24: 거인 전멸 = 도망자 승리
+    }
+    // v25 길 찾는 분신: 도망자와 똑같이 생긴 분신이 모르는 곳(가장 가까운 미탐색 칸)으로 달려가며 본 것을 도망자 기억에 넣음
+    sendScout() {
+      const R = this.runner;
+      this.scouts.push({ pos: R.pos, prev: R.pos, path: [R.pos], life: CFG.SCOUT_LIFE, goal: -1 });
+      R.scoutCd = CFG.SCOUT_CD; R.used++; this.scoutStats.used++;
+      this.fx.push({ t: 'scout', cell: R.pos, turn: this.turn });
+      this.log('scout', '👥 도망자가 길 찾는 분신을 보냈다!');
+    }
+    scoutTick() {
+      const m = this.map, R = this.runner;
+      if (R.scoutCd > 0) R.scoutCd--;
+      if (!this.scouts.length) return;
+      const wantW = this.weapon && !this.weapon.taken && !this.weapon.spotted;
+      for (const S of this.scouts) {
+        S.path = [S.pos];
+        for (let st = 0; st < CFG.SCOUT_STEPS && !S.gone; st++) {
+          const gi = this.giants.findIndex((G) => G.out <= 0 && G.pos === S.pos);
+          if (gi >= 0 || (this.dinoHits && this.dinoHits(S.pos)) || S.life <= 0) {
+            S.gone = true; this.fx.push({ t: 'scoutPop', cell: S.pos, turn: this.turn });
+            if (gi >= 0) { this.scoutStats.popped++; this.log('scout', `👥 거인${gi + 1}이 분신을 덮쳤다 — 가짜였다! 💨`); }
+            for (const G of this.giants) if (G.know === S.pos) { G.know = -1; G.knowTurn = -999; }
+            break;
+          }
+          // 목표: 도망자가 아직 못 본 가장 가까운 칸 (무기를 못 찾았으면 지하 쪽을 조금 더 선호)
+          if (S.goal < 0 || R.seen[S.goal]) {
+            const d = bfsC(m, S.pos, 1); let best = -1, bd = Infinity;
+            for (const c of m.floor) { if (R.seen[c] || d[c] >= 999 || m.isExit[c]) continue; const sc = d[c] - (wantW && m.lvl[c] === m.B1 ? 6 : 0); if (sc < bd) { bd = sc; best = c; } }
+            S.goal = best;
+          }
+          if (S.goal < 0) { S.life = 0; continue; }
+          const dG = bfsC(m, S.goal, 1); let nx = S.pos, bd2 = dG[S.pos];
+          const cand = [...(m.nbrs[S.pos] || [])]; if (m.stairOf[S.pos] >= 0) cand.push(m.stairOf[S.pos]);
+          for (const n of cand) if (dG[n] < bd2 && m.g[n] === 0) { bd2 = dG[n]; nx = n; }
+          S.prev = S.pos; S.pos = nx; S.path.push(nx);
+          const before = R.seen.reduce ? 0 : 0; updateSeen(this, nx); // 본 것은 도망자 기억으로
+          const Wp = this.weapon;
+          if (Wp && !Wp.taken && !Wp.spotted && manhattan(m, Wp.cell, nx) <= CFG.WEAPON_SEE && lineOfSight(m, nx, Wp.cell)) { Wp.spotted = true; this.scoutStats.weapon++; this.log('scout', '👥 분신이 어둠 속에서 번개창을 찾아냈다! 🔱'); }
+        }
+        S.life--;
+      }
+      this.scouts = this.scouts.filter((S) => !S.gone);
     }
     // 거인 k가 벽 ws(1~2칸)를 부숨: 맵 복사(처음 한 번) → 벽 제거 → 길찾기 갱신
     smash(k, ws) {
@@ -816,6 +864,8 @@
       if (R.cloak > 0) R.cloak--;
       // 샷건 장전 (기본 스킬): 2발 미만이면 5초마다 1발
       if (R.inv.shotgun < CFG.SHOTGUN_AMMO) { if (++R.reload >= secTurns(CFG.SHOTGUN_RELOAD_SEC)) { R.inv.shotgun++; R.reload = 0; } } else R.reload = 0;
+      if (R.teleCd > 0) R.teleCd--;
+      this.scoutTick();
       runnerUseItems(this);
       if (this.result) return; // v24: 마지막 거인을 처치하면 즉시 끝
       if (R.sprintLeft > 0) { rMoves = 2; R.sprintLeft--; }
@@ -903,7 +953,9 @@
         if (G.out > 0) { if (--G.out === 0) this.respawnGiant(k); continue; }
         if (G.blind > 0) G.blind--;
         if (G.stun > 0) { if (--G.stun === 0) this.log('stun', `거인${k + 1}이 정신을 차렸다 💫`); continue; }
-        let moves = ((this.turn + k) % giantSkip(gg) === 0 || this.rng() < CFG.GIANT_REST_P) ? 0 : 1;
+        // v25 무리 피로: 거인이 4명보다 많으면 한 명 늘 때마다 조금씩 더 자주 쉼 (많은 거인 = 덜 날렵)
+        const crowd = Math.max(0, this.giants.length - CFG.GIANTS) * CFG.GIANT_CROWD_REST;
+        let moves = ((this.turn + k) % giantSkip(gg) === 0 || this.rng() < CFG.GIANT_REST_P + crowd) ? 0 : 1;
         if (G.dashCd > 0) G.dashCd--;
         if (G.dashLeft === 0 && G.dashCd === 0 && G.saw) {
           const d = bfsC(m, G.pos, 2)[R.pos];
@@ -997,13 +1049,13 @@
       const e2 = 2 * err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; }
     }
   }
-  function updateSeen(game) {
-    const m = game.map, R = game.runner, x = R.pos % m.W, y = (R.pos / m.W) | 0;
-    R.seen[R.pos] = 1;
+  function updateSeen(game, at) {
+    const m = game.map, R = game.runner, P = at ?? R.pos, x = P % m.W, y = (P / m.W) | 0;
+    R.seen[P] = 1;
     for (const [dx, dy] of offsetsFor(CFG.VISION)) {
       const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= m.W || ny >= m.H) continue;
       const c = ny * m.W + nx; if (R.seen[c] === 1 && m.g[c] !== 2) continue;
-      if (visibleCell(m, R.pos, c)) R.seen[c] = 1;
+      if (visibleCell(m, P, c)) R.seen[c] = 1;
     }
   }
   // 여러 출발점 다익스트라 (우선순위 큐는 평행 배열 이진 힙)
@@ -1104,7 +1156,12 @@
     const pass = m.border ? (n) => { if (seenS[n] === 1) return m.g[n] === 0 && (all || !m.isExit[n]); return !m.border[n]; }
       : (n) => { if (seenS[n] === 1) return m.g[n] === 0 && (all || !m.isExit[n]); const x = n % W, yl = ((n / W) | 0) % FH; return x > 0 && x < W - 1 && yl > 0 && yl < FH - 1; };
     const seeds = []; let target = -1, bestT = Infinity;
-    const huntG = R.inv.slayer > 0 && (!!game.sealed || (g.slayHunt ?? 0.5) * 1.3 - (all ? 0.35 : 0) + game.kills * 0.15 > 0.5);
+    // v25 점수판·규칙 인식: 거인이 많을수록·거인 연승 중일수록 무기를 더 원함 (처치한 거인은 다음 판에도 없음 · 거인 전멸 = 승리). 시간이 얼마 안 남으면 무기 찾기보다 탈출
+    const ctx = game.ctx || {}, nG = ctx.giantCount || game.giants.length, left = CFG.MAX_TURNS - game.turn;
+    const boardW = (g.ruleWeapon ?? 0.5) * (Math.max(0, nG - CFG.GIANTS) * 0.07 + Math.min(4, ctx.giantStreak || 0) * 0.04);
+    const clockW = (g.ruleClock ?? 0.5) * Math.max(0, 1 - left / 600);
+    // 사냥: 봉쇄되면 무조건. 거인이 많을수록 더 사냥(처치 = 다음 판 거인 감소). 막판(시간 관리)엔 사냥보다 탈출 — 봉쇄 막판엔 무승부를 노려 피함
+    const huntG = R.inv.slayer > 0 && (game.sealed ? !(clockW > 0.35 && game.giants.filter((G) => !G.dead).length > 2) : (g.slayHunt ?? 0.5) * 1.3 - (all ? 0.35 : 0) + game.kills * 0.15 + boardW - clockW > 0.5);
     const wasHunt = !!R.huntOn; R.huntOn = huntG;
     if (all && !game.sealed && !huntG) {
       for (const e of m.exits) { if (!knownC(e)) continue; let s = dRaw ? (0.6 + g.keySafe) * Math.max(0, 16 - Math.min(dRaw[e], 30)) * 2 : 0; seeds.push([e, s]); if (dR[e] + s < bestT) { bestT = dR[e] + s; target = e; } }
@@ -1130,7 +1187,7 @@
     // v21 지하 탐험: 지하 경계는 '지하 탐험'만큼 싸지고, 무기를 아직 못 찾았으면 '무기 찾기'만큼 더 싸짐. 오래 머물면(지침) 지상으로 돌아감
     // v23 출구 봉쇄: 탈출할 수 없으니 무기 찾기(지하 우선) → 무기가 없으면 거인을 피해 살아남기
     const sealed = !!game.sealed, hunt = sealed && game.weapon && !game.weapon.taken;
-    const B1 = m.B1, wantW = game.weapon && !game.weapon.taken ? (hunt ? 1 : (g.weaponSeek ?? 0.5)) : 0;
+    const B1 = m.B1, wantW = game.weapon && !game.weapon.taken ? (hunt ? 1 : Math.max(0, Math.min(1, (g.weaponSeek ?? 0.5) + boardW - clockW))) : 0;
     const tired = !hunt && B1 >= 0 && R.b1Turns > CFG.B1_STAY_MIN + (g.delve ?? 0.3) * CFG.B1_STAY_GENE;
     const b1Pen = hunt ? 0 : tired ? 300 : Math.max(0, (1 - (g.delve ?? 0.3)) * 40 - wantW * 14);
     if (game.weapon && !game.weapon.taken && game.weapon.spotted && !tired) seeds.push([game.weapon.cell, (1 - wantW) * 20]);
@@ -1235,8 +1292,44 @@
     if (!ok) { game.setTile(c, 0); return false; }
     game.setTile(c, 0); game.placeBarricade(c, by); return true;
   }
+  // v25 순간이동: 같은 층, 길로 TELE_MIN~TELE_MAX칸 떨어진 칸 중 거인·공룡에게서 가장 먼 안전한 칸으로
+  function teleport(game) {
+    const m = game.map, R = game.runner, all = game.hasAllKeys(), d = bfsC(m, R.pos, all ? 0 : 1), fl = m.lvl[R.pos];
+    const gd = game.giants.filter((G) => G.out <= 0).map((G) => bfsC(m, G.pos, 2));
+    let best = -1, bs = -Infinity;
+    for (const c of m.floor) {
+      if (d[c] < CFG.TELE_MIN || d[c] > CFG.TELE_MAX || m.lvl[c] !== fl || m.g[c] !== 0 || m.isExit[c] || m.stairOf[c] >= 0 || (m.nearDoor && m.nearDoor[c])) continue;
+      if (game.giantAt(c) >= 0 || (game.dinoHits && game.dinoHits(c)) || game.snakes.some((S) => S.hidden <= 0 && S.body.includes(c))) continue;
+      const gmin = gd.length ? Math.min(...gd.map((x) => x[c])) : 99;
+      if (gmin < 4) continue;
+      const sc = Math.min(gmin, 20) + (m.nbrs[c] || []).length * 0.5 + game.rng() * 0.5;
+      if (sc > bs) { bs = sc; best = c; }
+    }
+    if (best < 0) return false;
+    const from = R.pos; R.pos = best; R.prev = best; R.teleCd = CFG.TELE_CD; R.used++;
+    game.teleStats.used++; game.teleStats.dist += d[best];
+    game.fx.push({ t: 'teleport', from, to: best, cell: best, turn: game.turn });
+    game.log('teleport', `✨ 도망자가 순간이동했다! (${d[best]}칸 떨어진 곳으로)`);
+    return true;
+  }
   function runnerUseItems(game) {
     const m = game.map, R = game.runner, g = game.rg, inv = R.inv, usedBefore = R.used;
+    // v25 순간이동: 아는 거인(또는 공룡)이 '순간이동'만큼 가까워지면 (쿨타임이 끝났을 때)
+    if (CFG.TELE_CD > 0 && !(R.teleCd > 0)) {
+      const dR = bfsC(m, R.pos, 2); let near = 999;
+      game.giants.forEach((G, k) => { if (G.out <= 0 && game.turn - R.knownTurn[k] <= 1) near = Math.min(near, dR[G.pos]); });
+      for (const D of game.dinos || []) if (m.lvl[D.pos] === m.lvl[R.pos] && manhattan(m, D.pos, R.pos) <= 3) near = Math.min(near, 1);
+      if (near <= 1 + Math.round((g.teleUse ?? 0.5) * CFG.TELE_TRIG) && teleport(game)) return;
+    }
+    // v25 길 찾는 분신: 쿨타임이 끝났고 거인이 가깝지 않으면 '길잡이 분신'만큼 자주 보냄 (모를 것이 남아 있을 때)
+    if (CFG.SCOUT_CD > 0 && !(R.scoutCd > 0) && !game.scouts.length) {
+      const unknown = game.keysLeft.some((k) => !R.seen[k]) || m.exits.some((e) => !R.seen[e]) || (game.weapon && !game.weapon.taken && !game.weapon.spotted);
+      if (unknown && game.rng() < 0.02 + (g.scoutUse ?? 0.5) * 0.25) {
+        const dR = bfsC(m, R.pos, 2); let near = 999;
+        game.giants.forEach((G, k) => { if (G.out <= 0 && game.turn - R.knownTurn[k] <= 2) near = Math.min(near, dR[G.pos]); });
+        if (near > 3) game.sendScout();
+      }
+    }
     // v21 번개창: 같은 줄 SLAYER_RANGE칸 안, 벽에 안 막힌 거인을 처치 (이번 판 동안 사라짐)
     if (R.spearCd > 0) R.spearCd--;
     if (inv.slayer > 0 && !(R.spearCd > 0)) {
@@ -1567,7 +1660,12 @@
   }
   function giantDecide(game, k) {
     const m = game.map, R = game.runner, G = game.giants[k], g = game.gg[k];
-    if (giantDetects(game, k)) { G.know = R.pos; G.knowTurn = game.turn; G.saw = true; }
+    let fooled = false;
+    if (game.scouts.length) { // v25: 보이는 분신이 진짜보다 가까우면 분신을 쫓음 (똑같이 생겨서 구별 못 함)
+      const dRun = giantDetects(game, k) ? manhattan(m, G.pos, R.pos) : 1e9;
+      for (const S of game.scouts) { const dc = manhattan(m, G.pos, S.pos); if (dc < dRun && dc <= CFG.SCOUT_FOOL && m.lvl[S.pos] === m.lvl[G.pos] && sees(m, G.pos, S.pos)) { if (G.know !== S.pos) game.scoutStats.fooled++; G.know = S.pos; G.knowTurn = game.turn; G.saw = true; fooled = true; } }
+    }
+    if (!fooled && giantDetects(game, k)) { G.know = R.pos; G.knowTurn = game.turn; G.saw = true; }
     if (G.ambushSpot >= 0 && G.mode !== '매복') { releaseDoor(game, k); G.ambushSpot = -1; }
     { const rk = giantRock(game, k); if (rk >= 0) return rk; } // v22: 바위로 탈출로 막기
     if (G.knowTurn === game.turn) {
@@ -1923,19 +2021,39 @@
       this.giant = { team: defaultGiantTeam(), level: 1, sigma: 0.12, catches: new Array(CFG.GIANTS).fill(0) };
       this.snake = { genes: defaultSnake(), level: 1, sigma: 0.12 }; this.lastSnakeRate = 0;
       this.history = []; this.trainWins = { runner: 0, giant: 0, draw: 0, snake: 0 };
-      this.growWins = 0; // 화면에 보이는 경기에서 도망자가 이긴 횟수 (WINS_PER_GIANT승마다 거인 +1, 최대 GIANTS_MAX)
+      this.giantStreak = 0; this.growWins = 0; // 화면에 보이는 경기에서 도망자가 이긴 횟수 (WINS_PER_GIANT승마다 거인 +1, 최대 GIANTS_MAX)
     }
     get giantCount() { return this.giant.team.length; }
     winsToNextGiant() { return this.giantCount >= CFG.GIANTS_MAX ? -1 : CFG.WINS_PER_GIANT - (this.growWins % CFG.WINS_PER_GIANT); }
     // 화면 경기 결과 기록: 도망자 승이 쌓이면 거인 추가. 반환: 새로 추가된 거인 번호 목록
-    recordVisible(result, catcher) {
+    recordVisible(result, catcher, opts) {
       const c = this.giant.catches || (this.giant.catches = new Array(this.giantCount).fill(0));
       if (result === 'giant' && catcher >= 0 && catcher < this.giantCount) c[catcher] = (c[catcher] || 0) + 1;
+      // v25: 번개창에 처치된 거인은 다음 판에서도 사라짐 (최소 GIANTS명) · 거인 LOSSES_PER_DROP연승이면 거인 -1
+      this.lastChange = { slainRemoved: 0, streakRemoved: 0, added: [] };
+      const slain = (opts && opts.slain) || [];
+      if (slain.length) {
+        const rm = [...new Set(slain)].filter((k) => k >= 0 && k < this.giantCount).sort((a, b) => b - a);
+        for (const k of rm) { if (this.giantCount <= CFG.GIANTS) break; this.removeGiant(k); this.lastChange.slainRemoved++; }
+      }
+      if (result === 'giant') this.giantStreak = (this.giantStreak || 0) + 1;
+      else if (result === 'runner') this.giantStreak = 0;
+      if ((this.giantStreak || 0) >= CFG.LOSSES_PER_DROP && this.giantCount > CFG.GIANTS) {
+        let wi = this.giantCount - 1; for (let i = this.giantCount - 1; i >= CFG.GIANTS; i--) if ((c[i] || 0) < (c[wi] || 0)) wi = i; // 가장 덜 잡은 (추가) 거인
+        this.removeGiant(wi); this.lastChange.streakRemoved = 1; this.giantStreak = 0;
+      }
+      if (this.lastChange.slainRemoved || this.lastChange.streakRemoved) this.growWins = (this.giantCount - CFG.GIANTS) * CFG.WINS_PER_GIANT + (Math.max(0, this.growWins) % CFG.WINS_PER_GIANT);
       if (result !== 'runner') return [];
       this.growWins++;
       const added = [];
       while (this.giantCount < giantsForWins(this.growWins)) added.push(this.addGiant());
+      this.lastChange.added = added;
       return added;
+    }
+    removeGiant(k) {
+      const T = this.giant.team, c = this.giant.catches || [];
+      if (T.length <= CFG.GIANTS) return false;
+      T.splice(k, 1); c.splice(k, 1); this.giant.catches = c; return true;
     }
     // 새 거인: 가장 많이 잡은 거인(동점이면 앞 번호)의 유전자를 복제해 변이
     addGiant() {
@@ -2014,10 +2132,10 @@
       return { rec, changes, n, rAcc: ri > 0, gAcc: gi > 0, sAcc: si > 0 };
     }
     // 저장 형식은 v7 그대로 (예전 화면이 읽어도 지워지지 않게), 뷱 두뇌는 snake 필드로 추가
-    toJSON() { return { v: 7, growWins: this.growWins, lastRate: this.lastRate, lastSnakeRate: this.lastSnakeRate, generation: this.generation, rounds: this.rounds, runner: this.runner, giant: this.giant, snake: this.snake, history: this.history, trainWins: this.trainWins }; }
+    toJSON() { return { v: 7, growWins: this.growWins, giantStreak: this.giantStreak || 0, lastRate: this.lastRate, lastSnakeRate: this.lastSnakeRate, generation: this.generation, rounds: this.rounds, runner: this.runner, giant: this.giant, snake: this.snake, history: this.history, trainWins: this.trainWins }; }
     load(o) {
       if (!o || o.v !== 7 || !o.giant || !Array.isArray(o.giant.team) || o.giant.team.length < CFG.GIANTS || o.giant.team.length > CFG.GIANTS_MAX) return false;
-      this.growWins = o.growWins || 0;
+      this.growWins = o.growWins || 0; this.giantStreak = o.giantStreak || 0;
       Object.assign(this, { lastRate: o.lastRate ?? 0.5, generation: o.generation, rounds: o.rounds, runner: o.runner, giant: o.giant, history: o.history || [], trainWins: o.trainWins || { runner: 0, giant: 0, draw: 0 } });
       // 예전 저장(새 유전자 없음): 빠진 유전자는 기본값으로 채움 (진화한 값은 그대로)
       if (this.runner && this.runner.genes) this.runner.genes = Object.assign(defaultRunner(), this.runner.genes);
@@ -2031,5 +2149,5 @@
     }
   }
 
-  return { boulderPlan, escapeOk, dinoField, dinoAnchors, SNAKE_GENES, defaultSnake, snakePressure, CFG, floorOf, missionGoals, R_ITEMS, R_SPAWN, vaultMoves, G_ITEMS, ITEM_INFO, visibleCell, updateSeen, cloneMap, finalizeGraphs, smashChoice, giantSkip, giantsForWins, secTurns, giantHear, mulberry32, generateMap, bfs, bfsC, Game, Trainer, RUNNER_GENES, GIANT_GENES, defaultRunner, defaultGiantTeam, roleOf, mutate, sees, giantSees, lineOfSight };
+  return { teleport, boulderPlan, escapeOk, dinoField, dinoAnchors, SNAKE_GENES, defaultSnake, snakePressure, CFG, floorOf, missionGoals, R_ITEMS, R_SPAWN, vaultMoves, G_ITEMS, ITEM_INFO, visibleCell, updateSeen, cloneMap, finalizeGraphs, smashChoice, giantSkip, giantsForWins, secTurns, giantHear, mulberry32, generateMap, bfs, bfsC, Game, Trainer, RUNNER_GENES, GIANT_GENES, defaultRunner, defaultGiantTeam, roleOf, mutate, sees, giantSees, lineOfSight };
 });

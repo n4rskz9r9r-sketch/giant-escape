@@ -65,6 +65,7 @@
       t,
       dinos: (g.dinos || []).map((D) => { const [x, y] = lerpPath(D.path, t); return { x, y, fx: D.facing[0], fy: D.facing[1], chase: D.mode === '돌격', sniff: D.mode === '냄새 추적', moving: D.path.length > 1 }; }),
       weapon: g.weapon,
+      scouts: (g.scouts || []).map((S) => { const [x, y, f, lv] = lerpPath(S.path, t); return { x, y, f, lv, dx: 0 }; }),
       boulders: g.boulders ? g.boulders.map((B) => ({ cell: B.carried >= 0 ? g.giants[B.carried].pos : B.cell, blocked: !B.gone && B.carried < 0 && !!g.blockInfo(B.cell), push: B.by >= 0, carried: B.carried >= 0, gone: !!B.gone })) : [],
       runner: { x: rx, y: ry, f: rf, lv: rl, dx: bx - ax, dy: by - ay, sprint: g.runner.sprintLeft > 0, boost: g.runner.boost > 0, cloak: g.runner.cloak > 0, hasKey: g.keysHeld > 0, gem: g.runner.gem >= 0, onPlate: plateIdx, jump },
       giants: g.giants.map((G) => { const [x, y, f, lv] = lerpPath(G.path, t); return { x, y, f, lv, dead: !!G.dead, fx: G.facing[0], fy: G.facing[1], dash: G.dashLeft > 0 || G.path.length > 2, ban: G.doorBan > 0 || G.keyBan > 0, smashReady: G.smashCd <= 0, stun: G.stun > 0, blind: G.blind > 0, track: G.track > 0, out: G.out > 0, outSec: Math.ceil(G.out / tpsNow()), home: (() => { const h = g.map.giantStarts[G.id], [hx, hy, hf, hl] = xyf(h); return { x: hx, y: hy, f: hf, lv: hl }; })() }; }),
@@ -350,6 +351,7 @@
     if (!newMap && app.map && changed && app.has3d) window.Render3D.setMap(app.map); // 부서진 벽·바리케이드 복구
     if (newMap || !app.map) { app.seed = (Math.random() * 2 ** 32) >>> 0; app.map = GE.generateMap(app.seed); if (app.has3d) window.Render3D.setMap(app.map); }
     app.game = new GE.Game(app.map, { ...trainer.runner.genes }, trainer.giant.team.map((g) => ({ ...g })), app.seed, { ...trainer.snake.genes });
+    app.game.ctx = { giantCount: trainer.giantCount, growWins: trainer.growWins, giantStreak: trainer.giantStreak || 0, toNext: trainer.winsToNextGiant() }; // v25: 도망자는 점수판·규칙을 앎
     app.loggedAt = {}; app.acc = 0; app.endAt = 0; app.smashSeen = 0; app.fxSeen = 0; app.fx2d = []; app.seenCount = -1; stageEl.classList.remove('cloaked');
     $('overlay').classList.add('hidden');
     log(`— 새 경기 (도망자 Lv.${trainer.runner.level} vs 거인팀 Lv.${trainer.giant.level}: ${trainer.giant.team.map((g, k) => `${k + 1}번 ${GE.roleOf(g)}`).join(', ')} vs 뷱 Lv.${trainer.snake.level}) —`, 'end');
@@ -412,6 +414,9 @@
     for (const e of fresh) {
       if (e.t === 'shot') { SND(e.miss ? 'miss' : 'shot'); if (!e.miss) setTimeout(() => SND('stun'), 160); }
       else if (e.t === 'smash') SND('smash');
+      else if (e.t === 'teleport') SND('teleport');
+      else if (e.t === 'scout') SND('scout');
+      else if (e.t === 'scoutPop') SND('smoke');
       else if (e.t === 'barricadeBreak' || e.t === 'barricade') SND('barricade');
       else if (e.t === 'vault') SND('vault');
       else if (e.t === 'eat' && e.giant >= 0) SND('gulp');
@@ -454,20 +459,29 @@
     app.snakeStats.giants += g.snakeAte.giants; app.snakeStats.runner += g.snakeAte.runner; app.snakeStats.pills += g.snakeAte.pills;
     $('sc-snake').textContent = `🐍 뷱이 먹은 거인 ${app.snakeStats.giants} · 도망자 ${app.snakeStats.runner} · 알약 ${app.snakeStats.pills}`;
     $('sc-runner').textContent = app.score.runner; $('sc-giant').textContent = app.score.giant; $('sc-draw').textContent = app.score.draw; $('sc-snakewin').textContent = app.score.snake;
-    const added = trainer.recordVisible(r, g.catcher);
+    const slainIds = g.giants.filter((G) => G.dead).map((G) => G.id);
+    const added = trainer.recordVisible(r, g.catcher, { slain: slainIds });
+    { // v25: 거인 수 변화 알림 (번개창 처치 → 다음 판에서도 사라짐 · 거인 연승 → 1명 쉼)
+      const lc = trainer.lastChange || {};
+      const say = (msg) => { log(msg, 'grow'); fpvToast(msg, 'grow'); };
+      if (slainIds.length) say(lc.slainRemoved ? `⚡ 번개창에 쓰러진 거인 ${lc.slainRemoved}명은 다음 판에도 없다 — 다음 판은 거인 ${trainer.giantCount}명으로 시작` : `⚡ 거인 ${slainIds.length}명 처치 — 하지만 거인은 최소 ${GE.CFG.GIANTS}명이라 다음 판도 ${trainer.giantCount}명`);
+      if (lc.streakRemoved) say(`👹 거인 ${GE.CFG.LOSSES_PER_DROP}연승! 거인 한 명이 쉬러 간다 — 다음 판은 거인 ${trainer.giantCount}명 (균형 조절)`);
+      if (lc.slainRemoved || lc.streakRemoved) { renderGenes(); saveQuiet(); }
+      app.nextNote = lc.slainRemoved || lc.streakRemoved || (lc.added && lc.added.length) ? ` · 다음 판 거인 ${trainer.giantCount}명` : '';
+    }
     if (added.length) {
       const msg = `도망자 ${trainer.growWins}승! 거인이 한 명 늘었다 👹 (거인${added.map((k) => k + 1).join('·')} 등장 — 이제 ${trainer.giantCount}명)`;
-      log(msg, 'grow'); fpvToast(msg, 'grow'); if (STREAM) hudLog(msg, 'grow'); setTimeout(() => SND('grow'), 2200);
+      log(msg, 'grow'); fpvToast(msg, 'grow'); setTimeout(() => SND('grow'), 2200);
       renderGenes(); saveQuiet();
     }
     updateGiantCount();
     $('overlayText').textContent = r === 'runner' ? (g.winBy === 'slay' ? '⚡ 거인 전멸! 도망자 승리!' : `🏃 문 ${g.escapeDoor} 탈출 성공!`) : r === 'giant' ? (g.catcher === -2 ? '🐍 뷱이 도망자를 삼켰다!' : g.catcher === -4 ? '🦖 공룡이 도망자를 삼켰다!' : `👹 거인${g.catcher + 1}이 잡아먹었다!`) : r === 'snake' ? `🐍👑 뷱 승리! 거인 ${g.snakeAte.giants}마리 꿀꺽` : '⏳ 시간 초과';
     $('overlayText').style.color = r === 'runner' ? '#4fc3ff' : r === 'giant' ? '#ff5d5d' : r === 'snake' ? '#7dff9a' : '#cfd3ef';
-    $('overlaySub').textContent = `${g.turn}턴 · 경기 후 복기 훈련 중…`;
+    $('overlaySub').textContent = `${g.turn}턴 · 경기 후 복기 훈련 중…` + (app.nextNote || '');
     $('overlay').classList.remove('hidden');
     setTimeout(() => trainAsync(STREAM ? 10 : 30, (out) => {
       reportLearning(out.changes, out.rec);
-      $('overlaySub').textContent = `${g.turn}턴 · ${trainer.generation}세대 학습 완료`;
+      $('overlaySub').textContent = `${g.turn}턴 · ${trainer.generation}세대 학습 완료` + (app.nextNote || '');
       if (STREAM) {
         saveQuiet(); hudUpdate();
         if (++app.roundsSinceBurst >= STREAM_BURST_EVERY) { app.roundsSinceBurst = 0; app.nextTimer = setTimeout(() => fastTrain(STREAM_BURST_GENS), 2200); return; }
@@ -692,7 +706,7 @@
       <div class="hud-status" id="h-status"></div>
       <div class="hud-floor" id="h-floor">🏢 1F</div>
       <div class="hud-ammo" id="h-ammo"><div class="am-top"><span class="am-ic">🔫</span><span class="am-name">샷건</span><b id="h-ammoN">2/2</b><span class="am-shells" id="h-shells"></span></div><div class="am-bar"><i id="h-reload"></i></div><div class="am-sub" id="h-ammoSub">장전 완료</div></div>
-      <div class="hud-snake" id="h-snake"><div class="sn-top"><span class="sn-ic">🐍</span><span class="sn-name">뷱</span><b id="h-snakeN">0/20</b></div><div class="sn-bar"><i id="h-snakeBar"></i></div><div class="sn-sub" id="h-snakeSub">거인을 먹으면 뷱 승리</div></div>
+      <div class="hud-snake" id="h-snake"><div class="sn-top"><span class="sn-ic">🐍</span><span class="sn-name">뷱</span><b id="h-snakeN">0/8</b></div><div class="sn-bar"><i id="h-snakeBar"></i></div><div class="sn-sub" id="h-snakeSub">거인을 먹으면 뷱 승리</div></div>
       <ul class="hud-log" id="h-log"></ul>`;
     stageEl.appendChild(hud);
   }
@@ -708,7 +722,7 @@
   function hudStatus() {
     const g = app.game; if (!hud || !g) return;
     const d = app.nearD ?? 999;
-    { const fl = flo(g.runner.pos), el = $('h-floor'); if (el) { el.textContent = (isB1(fl) ? '⛏️ ' : '🏢 ') + floorTag(fl) + (g.runner.inv.slayer > 0 ? ' · 🔱∞' : ''); el.classList.toggle('b1', isB1(fl)); el.classList.toggle('armed', g.runner.inv.slayer > 0); } }
+    { const fl = flo(g.runner.pos), el = $('h-floor'); if (el) { el.textContent = (isB1(fl) ? '⛏️ ' : '🏢 ') + floorTag(fl) + (g.runner.inv.slayer > 0 ? ' · 🔱∞' : '') + (GE.CFG.TELE_CD > 0 ? (g.runner.teleCd > 0 ? ` · ✨${Math.ceil(g.runner.teleCd / 10)}s` : ' · ✨✓') : '') + (GE.CFG.SCOUT_CD > 0 ? (g.scouts && g.scouts.length ? ' · 👥!' : g.runner.scoutCd > 0 ? ` · 👥${Math.ceil(g.runner.scoutCd / 10)}s` : ' · 👥✓') : ''); el.classList.toggle('b1', isB1(fl)); el.classList.toggle('armed', g.runner.inv.slayer > 0); } }
     $('h-status').textContent = `🏢 ${floorName(flo(g.runner.pos))} · 🧩 ${g.missionText()} · 🐍 뷱 ${g.snakeAte.giants}/${SW()} · ⏱ 턴 ${g.turn} · 🔑 ${g.keysHeld}/${app.map.keys.length}${g.keysLeft.length ? '' : ' 문 열림!'} · 📏 거인까지 ${d >= 999 ? '-' : d + '칸'} · 🏃 ${g.runner.mode}${g.runner.sprintLeft > 0 ? ' ⚡' : ''}${g.runner.boost > 0 ? ' 🚀' : ''}${g.runner.cloak > 0 ? ' 👻' : ''}${invText(g.runner.inv, ' · 🎒 ', true)}${g.giants.some((G) => G.stun > 0) ? ' · 💫 기절 ' + g.giants.filter((G) => G.stun > 0).map((G) => G.id + 1).join('·') : ''}`;
   }
   function hudAmmo() {

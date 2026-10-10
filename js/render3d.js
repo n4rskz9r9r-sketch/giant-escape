@@ -15,6 +15,7 @@ let renderer, scene, camera, controls, dirLight, container;
 let mapGroup = null, map = null, W = 0, H = 0, FH = 0, NF = 1, focusF = 0, lastFocus = -1, lastCamForVis = '';
 const FLOOR_Y = 3.2; // 층 높이 (전체/따라가기 시점)
 let wallsMeshes = [], ghostWalls = [], tileMeshes = [], floorPlanes = [], stairObjs = [], chestObjs = new Map(), leverObjs = new Map(), gemObjs = [], pedObjs = [], plateObjs = [], pillObjs = new Map(), snakeObjs = [];
+let scoutObjs = [];
 let runnerObj, giantObjs = [], keyObjs = new Map(), doorObjs = [], visionMesh, coneMeshes = [], doorZoneMesh;
 let lastVisionVer = -1;
 // 1인칭(도망자 시점) 상태
@@ -336,6 +337,7 @@ R3.setMap = function (m) {
   });
   // 캐릭터
   runnerObj = makeRunner(); runnerObj.scale.setScalar(1.35); mapGroup.add(runnerObj);
+  scoutObjs = []; { const o = makeRunner(); o.scale.setScalar(1.35); o.visible = false; mapGroup.add(o); scoutObjs.push(o); } // v25 길 찾는 분신: 도망자와 똑같이 생김
   { const g = makeGem(true); g.position.set(0, 1.25, 0); g.visible = false; runnerObj.add(g); runnerObj.userData.gem = g; }
   giantObjs = m.giantStarts.map((_, k) => { const o = makeGiant(k); mapGroup.add(o); return o; });
   snakeObjs = (m.snakeStarts || []).map(() => { const o = makeSnake(); mapGroup.add(o); return o; });
@@ -613,7 +615,9 @@ R3.fx = function (list, opt) {
       const hit = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.miss ? '💨' : '💥'), transparent: true, depthWrite: false })); hit.position.set(tx, cyF + 1.6, tz); hit.scale.set(1.1, 1.1, 1);
       addFx(hit, 0.6, (t) => { hit.material.opacity = 1 - t / 0.6; const k = 1.1 + t; hit.scale.set(k, k, 1); });
       R3.muzzleT = nowS; shakeAmt = Math.max(shakeAmt, R3.camMode === 'fpv' ? 0.12 : 0.15);
-    } else if (['roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn', 'snakeStun', 'lunge', 'dinoBite', 'dinoRoar', 'weapon', 'slay', 'hatch', 'boulder', 'boulderBlock', 'boulderReset', 'dinoSniff', 'sealed'].includes(e.t)) {
+    } else if (['roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn', 'snakeStun', 'lunge', 'dinoBite', 'dinoRoar', 'weapon', 'slay', 'hatch', 'boulder', 'boulderBlock', 'boulderReset', 'dinoSniff', 'sealed', 'teleport', 'scout', 'scoutPop'].includes(e.t)) {
+      if (e.t === 'scout' || e.t === 'scoutPop') { const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.t === 'scout' ? '👥' : '💨'), transparent: true, depthWrite: false })); ic.position.set(cx, cyF + 1.6, cz); addFx(ic, 1.3, (t) => { ic.position.y = cyF + 1.6 + t * 0.6; ic.material.opacity = Math.max(0, 1 - t / 1.3); }); }
+      if (e.t === 'teleport') { for (const [c0, k0] of [[e.from, 0], [e.to, 1]]) { if (!onF(c0)) continue; const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTex(), color: 0xb98cff, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false })); gl.position.set(wx(c0 % W), fy(c0) + 0.8, wzc(c0)); addFx(gl, 0.9, (t) => { const k = k0 ? 3.2 - t * 3 : 0.6 + t * 3; gl.scale.set(k, k * 1.6, 1); gl.material.opacity = Math.max(0, 1 - t / 0.9); }); const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('✨'), transparent: true, depthWrite: false })); ic.position.set(wx(c0 % W), fy(c0) + 1.7, wzc(c0)); addFx(ic, 1.2, (t) => { ic.position.y = fy(c0) + 1.7 + t * 0.5; ic.material.opacity = Math.max(0, 1 - t / 1.2); }); } }
       if (e.t === 'dinoRoar') { R3.dinoRoarT = nowS; shakeAmt = Math.max(shakeAmt, 0.3); }
       if (e.t === 'boulderBlock') { shakeAmt = Math.max(shakeAmt, 0.25); const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🪨'), transparent: true, depthWrite: false })); ic.position.set(cx, cyF + 1.6, cz); addFx(ic, 2.0, (t) => { const k = 0.8 + Math.min(t, 0.4) * 2.5; ic.scale.set(k, k, 1); ic.material.opacity = t < 1.3 ? 1 : Math.max(0, 1 - (t - 1.3) / 0.7); }); }
       if (e.t === 'dinoSniff' || e.t === 'sealed') { const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.t === 'sealed' ? '🚫' : '👃'), transparent: true, depthWrite: false })); ic.position.set(cx + (e.t === 'sealed' ? 0 : 0.5), cyF + 2.4, cz + 0.5); addFx(ic, 1.8, (t) => { ic.position.y = cyF + 2.4 + t * 0.4; ic.scale.setScalar(1.1); ic.material.opacity = Math.max(0, 1 - t / 1.8); }); if (e.t === 'sealed') shakeAmt = Math.max(shakeAmt, 0.3); }
@@ -899,6 +903,7 @@ R3.render = function (s) {
   for (const o of stairObjs) { o.visible = o.userData.cells.some((c) => onF(c)) && (o.userData.steps ? cellF(o.userData.cells[0]) === focusF : true); if (o.userData.label) o.userData.label.position.y = 1.3 + Math.sin(now * 3) * 0.1; }
   // v21 공룡 · 무기 · 횃불
   updateUnderground(s, now);
+  scoutObjs.forEach((o, i) => { const c = (s.scouts || [])[i]; o.visible = !!c && c.f === focusF; if (!o.visible) return; const px = wx(c.x), pz = wz(c.y); const dx = px - o.position.x, dz = pz - o.position.z; if (Math.hypot(dx, dz) > 0.002) o.rotation.y = Math.atan2(dx, dz); o.position.set(px, c.f * FLOOR_Y + Math.abs(Math.sin(now * 14)) * 0.05, pz); });
   updateBoulders(s, now, dtR);
   // 알약
   const ps = s.pills || [], pset = new Set(ps);
