@@ -209,3 +209,10 @@ body.stream .sound-hint:not(.big) { left:16px; bottom:16px; font-size:15px; }
 .log li.snakeWarn, .hud-log li.snakeWarn { color:#ff9a6a; font-weight:700; }
 .score { grid-template-columns: 1fr .8fr 1fr 1fr; } .score .scoreline { grid-column: 1 / -1; }
 .hud-score { gap:8px; padding:6px 12px; font-size:19px; } .hud-score .r b, .hud-score .g b, .hud-score .s b { font-size:28px; } .hud-score .d { font-size:15px; }
+/* v21: 층 표시 배지 (지하 B1이면 주황, 번개창을 들면 하늘색 테) */
+.hud-floor { position:absolute; right:18px; top:322px; min-width:230px; box-sizing:border-box; text-align:center; background:rgba(10,12,28,.78); padding:6px 14px; border-radius:12px; border:2px solid rgba(159,224,255,.45); font-size:22px; font-weight:800; letter-spacing:.5px; }
+.hud-floor.b1 { background:rgba(40,20,8,.85); border-color:rgba(255,150,60,.85); color:#ffcf9a; box-shadow:0 0 14px rgba(255,120,30,.35); }
+.hud-floor.armed { border-color:#7fd8ff; box-shadow:0 0 16px rgba(127,216,255,.6); }
+.log li.weapon, .log li.kill, .hud-log li.weapon, .hud-log li.kill { color:#9fe8ff; }
+.log li.dino, .hud-log li.dino { color:#c8ff6a; }
+.log li.b1, .hud-log li.b1 { color:#ffcf9a; }

@@ -6,12 +6,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>거인과 도망자 3D — AI 대결 · 공진화</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>👹</text></svg>">
-<link rel="stylesheet" href="css/style3.css?v=20">
+<link rel="stylesheet" href="css/style3.css?v=21">
 </head>
 <body>
 <header>
   <h1>👹👹👹👹 거인과 도망자 3D 🏃 🐍</h1>
-  <p class="sub">도망자 1명 vs 거인 4명(도망자 5승마다 +1, 최대 10명), 2층 미로 — 열쇠 2개는 잠긴 상자 속(🕹️스위치 · 💎보석 운반 · ⏳발판 미션을 풀어야 열림). 열쇠를 모아 1층 문 A·B로 탈출하면 도망자 승, 잡히면 거인팀 승, 🐍뷱이 한 판에 거인 12마리를 먹으면 뷱 승(도망자는 꼬리 잡기·샷건으로 뷱을 막음). 뷱(1마리)은 계단으로 두 층을 오가며 💊알약과 거인을 먹고 길어집니다. 도망자는 🌫 직접 본 곳만 알고, 맵에 떨어진 아이템(💨연막탄 🚀부스터 👻투명망토 🔫샷건(2발) 🧱바리케이드 / 거인: 🔊포효 🐾냄새 추적기 🚧바리케이드)을 주워 씁니다. 💥 거인은 30초마다 벽을 부술 수 있고, 도망자가 5승 할 때마다 거인이 한 명씩 늘어납니다(최대 10명). 도망자·거인·뷱 세 쪽 모두 판마다 서로에게 배우며 성장합니다.</p>
+  <p class="sub">도망자 1명 vs 거인 4명(도망자 5승마다 +1, 최대 10명), 2층 미로 — 열쇠 2개는 잠긴 상자 속(🕹️스위치 · 💎보석 운반 · ⏳발판 미션을 풀어야 열림). 열쇠를 모아 1층 문 A·B로 탈출하면 도망자 승, 잡히면 거인팀 승, 🐍뷱이 한 판에 거인 20마리를 먹으면 뷱 승(도망자는 꼬리 잡기·샷건으로 뷱을 막음). 뷱(1마리)은 계단으로 두 층을 오가며 💊알약과 거인을 먹고 길어집니다. 도망자는 🌫 직접 본 곳만 알고, 맵에 떨어진 아이템(💨연막탄 🚀부스터 👻투명망토 🔫샷건(2발) 🧱바리케이드 / 거인: 🔊포효 🐾냄새 추적기 🚧바리케이드)을 주워 씁니다. 💥 거인은 30초마다 벽을 부술 수 있고, 도망자가 5승 할 때마다 거인이 한 명씩 늘어납니다(최대 10명). ⛏️ 1층 해치 아래에는 엄청 큰 지하 1층(B1) 미로가 있고, 어딘가에 거인을 처치하는 전설의 무기 🔱번개창(2번)이 숨겨져 있지만, 2×2 크기의 거대한 🦖공룡이 돌아다닙니다. 도망자·거인·뷱 세 쪽 모두 판마다 서로에게 배우며 성장합니다.</p>
 </header>
 <main>
   <section class="stage card">
@@ -45,7 +45,7 @@
       <button id="btnCamReset" style="display:none">🔭 전체 보기</button>
       <button id="btnTps" style="display:none">🏃 3인칭</button>
       <button id="btnFpv" style="display:none">👀 도망자 시점</button>
-      <button id="btnFloor" title="보는 층: 자동(도망자가 있는 층) → 1F → 2F">🏢 층: 자동</button>
+      <button id="btnFloor" title="보는 층: 자동(도망자가 있는 층) → 1F → 2F → B1">🏢 층: 자동</button>
       <label class="slider">속도 <input type="range" id="speed" min="1" max="40" value="10"><span id="speedVal">10</span>턴/초</label>
       <label class="chk"><input type="checkbox" id="autoNext" checked> 자동 다음 판</label>
       <label class="chk"><input type="checkbox" id="showVision" checked> 거인 시야</label>
@@ -80,7 +80,7 @@
         <button id="btnLoad">📂 불러오기</button>
         <button id="btnResetBrain" class="danger">🧹 초기화</button>
       </div>
-      <p class="hint">매 판이 끝나면 한 세대(16~24판)를 훈련합니다. 도망자 두뇌와 거인팀 두뇌(거인마다 따로 가진 유전자 16개 — 새 거인은 가장 많이 잡은 거인을 복제·변이, 도망자 유전자 17개 — 아이템·미션·뷱 다루는 법도 배움)와 뷱 두뇌(유전자 8개 — 사냥 감각·부활 지점 매복·달려들기 등)가 변이된 도전자와 같은 맵에서 겨뤄 더 잘한 쪽이 살아남습니다. 지고 있는 쪽은 도전자를 2명 내보내고 더 크게 변이합니다.</p>
+      <p class="hint">매 판이 끝나면 한 세대(16~24판)를 훈련합니다. 도망자 두뇌와 거인팀 두뇌(거인마다 따로 가진 유전자 18개 — 새 거인은 가장 많이 잡은 거인을 복제·변이, 도망자 유전자 22개 — 아이템·미션·뷱·지하 탐험·무기 찾기·공룡 피하기도 배움)와 뷱 두뇌(유전자 8개 — 사냥 감각·부활 지점 매복·달려들기 등)가 변이된 도전자와 같은 맵에서 겨뤄 더 잘한 쪽이 살아남습니다. 지고 있는 쪽은 도전자를 2명 내보내고 더 크게 변이합니다.</p>
     </section>
 
     <section class="card brains">
@@ -110,11 +110,11 @@
     </section>
   </aside>
 </main>
-<footer>🔫 샷건 = 도망자 기본 스킬(최대 2발, 5초마다 1발 장전), 맞으면 2초 기절 · 🤸 벽넘기 = 안쪽 벽 한 칸을 한 번 뛰어넘음 · 🐍 먹힌 거인은 5초 뒤 출발점에서 부활 (기본 속도 10턴/초) · 🏢 층 버튼: 자동(도망자 층) → 1F → 2F · 🐍 뷱(1마리, 계단으로 층 이동): 거인만 잡아먹음(도망자는 그냥 통과), 꼬리를 밟으면 잠시 사라짐, 샷건에 맞으면 3초 기절 · 🐍 뷱도 학습: 한 판에 거인 12마리를 먹으면 뷱 승리 · 💥 벽 부수기 30초 쿨다운 · 3D: three.js (로컬 포함, MIT) · 드래그 회전 · 휠/두 손가락 확대 · 도망자 시점에서는 드래그로 잠깐 둘러보기 · 학습 결과는 이 브라우저(localStorage)에 저장됩니다</footer>
-<script src="js/engine3.js?v=20"></script>
-<script src="js/i18n3.js?v=20"></script>
-<script src="js/audio3.js?v=20"></script>
-<script src="js/ui3.js?v=20"></script>
-<script type="module" src="js/render3d.js?v=20"></script>
+<footer>🔫 샷건 = 도망자 기본 스킬(최대 2발, 5초마다 1발 장전), 맞으면 2초 기절 · 🤸 벽넘기 = 안쪽 벽 한 칸을 한 번 뛰어넘음 · 🐍 먹힌 거인은 3초 뒤 출발점에서 부활 (기본 속도 10턴/초) · 🏢 층 버튼: 자동(도망자 층) → 1F → 2F → B1 · ⛏️ 지하 1층: 🔱번개창 = 같은 줄 5칸 안의 거인을 처치(이번 판 복귀 불가, 2번) · 🦖 공룡(2×2, 지하만): 도망자를 물면 거인팀 승, 거인을 물면 10초 기절 · 🐍 뷱(1마리, 계단으로 층 이동): 거인만 잡아먹음(도망자는 그냥 통과), 꼬리를 밟으면 잠시 사라짐, 샷건에 맞으면 3초 기절 · 🐍 뷱도 학습: 한 판에 거인 20마리를 먹으면 뷱 승리 · 💥 벽 부수기 30초 쿨다운 · 3D: three.js (로컬 포함, MIT) · 드래그 회전 · 휠/두 손가락 확대 · 도망자 시점에서는 드래그로 잠깐 둘러보기 · 학습 결과는 이 브라우저(localStorage)에 저장됩니다</footer>
+<script src="js/engine3.js?v=21"></script>
+<script src="js/i18n3.js?v=21"></script>
+<script src="js/audio3.js?v=21"></script>
+<script src="js/ui3.js?v=21"></script>
+<script type="module" src="js/render3d.js?v=21"></script>
 </body>
 </html>

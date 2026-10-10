@@ -24,7 +24,7 @@ let wallIndex = null, debris = [], shakeAmt = 0, lastNow = 0;
 const zeroM = new THREE.Matrix4().makeScale(0, 0, 0);
 // 아이템 / 바리케이드 / 효과 / 안개
 let itemObjs = new Map(), barObjs = new Map(), fxObjs = [], fogMesh = null, lastFogVer = -1, muzzle = null;
-const ITEM_ICON = { smoke: '💨', boost: '🚀', cloak: '👻', shotgun: '🔫', vault: '🤸', barricade: '🧱', roar: '🔊', tracker: '🐾' };
+const ITEM_ICON = { slayer: '🔱', smoke: '💨', boost: '🚀', cloak: '👻', shotgun: '🔫', vault: '🤸', barricade: '🧱', roar: '🔊', tracker: '🐾' };
 const texCache = new Map();
 function emojiTex(ch, ring) {
   const key = ch + (ring || ''); if (texCache.has(key)) return texCache.get(key);
@@ -80,9 +80,15 @@ function makeBeam(color, h) {
 }
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3(), tmpS = new THREE.Vector3(1, 1, 1);
 
-const wx = (x) => x - W / 2 + 0.5, wz = (y) => (y % FH) - FH / 2 + 0.5;
-const cellF = (c) => Math.floor(((c / W) | 0) / FH), fy = (c) => cellF(c) * FLOOR_Y;
-function setAt(o, c, y) { o.position.set(wx(c % W), (y || 0) + fy(c), wz((c / W) | 0)); }
+// v21: 층(레벨) 0=1층, 1=2층, 2=지하 1층(B1). y는 '정렬된 y'(지하는 지상 1층 바로 아래 가운데), 높이는 레벨의 lz × FLOOR_Y (지하 = -1)
+const wx = (x) => x - W / 2 + 0.5, wz = (y) => y - FH / 2 + 0.5;
+const cellF = (c) => (map && map.lvl ? map.lvl[c] : Math.floor(((c / W) | 0) / FH));
+const LZ = (f) => (map && map.levels && map.levels[f] ? map.levels[f].lz : f);
+const fy = (c) => LZ(cellF(c)) * FLOOR_Y;
+const wzc = (c) => wz(map && map.ay ? map.ay[c] : ((c / W) | 0) % FH);
+const LV = (o) => (o.lv != null ? o.lv : Math.round(o.f || 0));
+let B1 = -1, torchList = [], torchLights = [], torchPts = null, dinoObj = null, weaponObj = null;
+function setAt(o, c, y) { o.position.set(wx(c % W), (y || 0) + fy(c), wzc(c)); }
 
 function labelSprite(text, color, scale) {
   const c = document.createElement('canvas'); c.width = c.height = 128;
@@ -114,6 +120,8 @@ R3.init = function (el) {
   hemiLight = new THREE.HemisphereLight(0xdfe8ff, 0x2a2440, 1.25); scene.add(hemiLight);
   // 1인칭용 손전등(카메라를 따라다님). 셰이더 재컴파일을 피하려고 항상 두고 밝기만 바꿈
   lantern = new THREE.PointLight(0xffd9a8, 0, 9, 1.3); scene.add(lantern);
+  // v21: 지하 횃불 빛 2개 (항상 장면에 두고 세기만 바꿈 → 셰이더 재컴파일 없음)
+  for (let k = 0; k < 2; k++) { const l = new THREE.PointLight(0xff8a30, 0, 7, 1.4); scene.add(l); torchLights.push(l); }
   bindFpvDrag(renderer.domElement);
   dirLight = new THREE.DirectionalLight(0xfff1dd, 2.6);
   dirLight.position.set(-12, 24, 10);
@@ -246,7 +254,10 @@ R3.setMap = function (m) {
   chestObjs = new Map(); leverObjs = new Map(); gemObjs = []; pedObjs = []; plateObjs = []; pillObjs = new Map(); snakeObjs = []; stairObjs = [];
   for (const f of fxObjs) disposeGroup(f.obj); fxObjs = []; lastFogVer = -1; lastFocus = -1;
   for (const d of debris) { scene.remove(d.mesh); } debris = [];
-  map = m; W = m.W; H = m.H; FH = m.FH || m.H; NF = m.floors || 1;
+  map = m; W = m.W; H = m.H; FH = m.FH || m.H;
+  const LVS = m.levels || Array.from({ length: m.floors || 1 }, (_, f) => ({ row0: f * FH, h: FH, zOff: 0, lz: f }));
+  NF = LVS.length; B1 = m.B1 != null ? m.B1 : -1;
+  dinoObj = null; weaponObj = null; torchPts = null; torchList = [];
   mapGroup = new THREE.Group(); scene.add(mapGroup);
   const tileGeo = new THREE.PlaneGeometry(0.96, 0.96); tileGeo.rotateX(-Math.PI / 2);
   const wallGeo = new THREE.BoxGeometry(1, 0.95, 1); wallGeo.translate(0, 0.475, 0);
@@ -254,18 +265,20 @@ R3.setMap = function (m) {
   const cw1 = new THREE.Color(0x8d96d0), cw2 = new THREE.Color(0x7f88c2), cw3 = new THREE.Color(0x86b0c8), cw4 = new THREE.Color(0x789fb8);
   wallIndex = new Int32Array(W * H).fill(-1); wallsMeshes = []; ghostWalls = []; tileMeshes = []; floorPlanes = [];
   const ghostMat = new THREE.MeshBasicMaterial({ color: 0x9fb4ff, transparent: true, opacity: 0.07, depthWrite: false });
+  const cA3 = new THREE.Color(0x2e2620), cB3 = new THREE.Color(0x352b23), cw5 = new THREE.Color(0x6e5a48), cw6 = new THREE.Color(0x5c4a3b);
   for (let f = 0; f < NF; f++) {
-    const y0 = f * FLOOR_Y, cells = [], wl = [];
-    for (let i = f * W * FH; i < (f + 1) * W * FH; i++) { if (m.g[i] === 0) cells.push(i); else wl.push(i); }
-    // 바닥판 (2층은 살짝 다른 색)
-    const plane = new THREE.Mesh(new THREE.PlaneGeometry(W + (f ? 1 : 6), FH + (f ? 1 : 6)), new THREE.MeshStandardMaterial({ color: f ? 0x1d2a3a : 0x1b2040, roughness: 0.95 }));
+    const L = LVS[f], ug = f === B1, y0 = L.lz * FLOOR_Y, cells = [], wl = [];
+    for (let i = L.row0 * W; i < (L.row0 + L.h) * W; i++) { if (m.g[i] === 0) cells.push(i); else wl.push(i); }
+    // 바닥판 (2층은 살짝 다른 색, 지하는 어두운 흙색)
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(W + (f ? 1 : 6), L.h + (f ? 1 : 6)), new THREE.MeshStandardMaterial({ color: ug ? 0x0e0a08 : f ? 0x1d2a3a : 0x1b2040, roughness: 0.95 }));
     plane.rotation.x = -Math.PI / 2; plane.position.y = y0 - (f ? 0.02 : 0); plane.receiveShadow = true; mapGroup.add(plane); floorPlanes.push(plane);
     const tiles = new THREE.InstancedMesh(tileGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }), cells.length);
-    cells.forEach((i, n) => { const x = i % W, y = (i / W) | 0; tmpM.makeTranslation(wx(x), 0.005, wz(y)); tiles.setMatrixAt(n, tmpM); tiles.setColorAt(n, (x + y) % 2 ? (f ? cA2 : cA) : (f ? cB2 : cB)); });
+    cells.forEach((i, n) => { const x = i % W, y = m.ay ? m.ay[i] : (i / W) | 0, yy = (i / W) | 0; tmpM.makeTranslation(wx(x), 0.005, wz(y)); tiles.setMatrixAt(n, tmpM); tiles.setColorAt(n, (x + yy) % 2 ? (ug ? cA3 : f ? cA2 : cA) : (ug ? cB3 : f ? cB2 : cB)); });
     tiles.position.y = y0; tiles.receiveShadow = true; mapGroup.add(tiles); tileMeshes.push(tiles);
-    const walls = new THREE.InstancedMesh(wallGeo, new THREE.MeshStandardMaterial({ color: 0x9aa2d8, roughness: 0.75 }), Math.max(1, wl.length));
+    const walls = new THREE.InstancedMesh(wallGeo, new THREE.MeshStandardMaterial({ color: ug ? 0x8a7560 : 0x9aa2d8, roughness: ug ? 0.95 : 0.75 }), Math.max(1, wl.length));
     const ghost = new THREE.InstancedMesh(wallGeo, ghostMat, Math.max(1, wl.length));
-    wl.forEach((i, n) => { const x = i % W, y = (i / W) | 0; tmpM.makeTranslation(wx(x), 0, wz(y)); walls.setMatrixAt(n, tmpM); ghost.setMatrixAt(n, tmpM); walls.setColorAt(n, (x * 7 + y * 3) % 5 ? (f ? cw3 : cw1) : (f ? cw4 : cw2)); wallIndex[i] = n; });
+    wl.forEach((i, n) => { const x = i % W, y = m.ay ? m.ay[i] : (i / W) | 0, yy = (i / W) | 0; tmpM.makeTranslation(wx(x), 0, wz(y)); walls.setMatrixAt(n, tmpM); ghost.setMatrixAt(n, tmpM); walls.setColorAt(n, (x * 7 + yy * 3) % 5 ? (ug ? cw5 : f ? cw3 : cw1) : (ug ? cw6 : f ? cw4 : cw2)); wallIndex[i] = n; });
+    if (ug) { walls.castShadow = false; }
     walls.position.y = y0; ghost.position.y = y0; walls.castShadow = true; walls.receiveShadow = true; ghost.visible = false;
     mapGroup.add(walls); mapGroup.add(ghost); wallsMeshes.push(walls); ghostWalls.push(ghost);
   }
@@ -273,7 +286,7 @@ R3.setMap = function (m) {
   // 문 근처 구역 (거인이 오래 머물 수 없음)
   const zone = []; for (const i of m.floor) if (m.nearDoor[i]) zone.push(i);
   doorZoneMesh = new THREE.InstancedMesh(tileGeo, new THREE.MeshBasicMaterial({ color: 0xffe680, transparent: true, opacity: 0.08, depthWrite: false }), Math.max(1, zone.length));
-  zone.forEach((i, k) => { tmpM.makeTranslation(wx(i % W), 0.015 + fy(i), wz((i / W) | 0)); doorZoneMesh.setMatrixAt(k, tmpM); });
+  zone.forEach((i, k) => { tmpM.makeTranslation(wx(i % W), 0.015 + fy(i), wzc(i)); doorZoneMesh.setMatrixAt(k, tmpM); });
   doorZoneMesh.count = zone.length; mapGroup.add(doorZoneMesh);
   // 거인 시야 타일
   visionMesh = new THREE.InstancedMesh(tileGeo, new THREE.MeshBasicMaterial({ color: 0xff3b3b, transparent: true, opacity: 0.22, depthWrite: false }), W * H);
@@ -302,6 +315,12 @@ R3.setMap = function (m) {
     const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('⬇', '#59e39a'), transparent: true, depthWrite: false })); lab.scale.set(0.45, 0.45, 1); lab.position.y = 1.3; up.add(lab); up.userData.label = lab;
     const bm = makeBeam(0x59e39a, 4); bm.material.opacity = 0.2; up.add(bm); mapGroup.add(up); stairObjs.push(up);
   }
+  // v21: 해치 (지상 1층 구멍 ↔ 지하 사다리)
+  for (const [a, b2] of (m.hatches || [])) {
+    const top = makeHatch(false); setAt(top, a, 0); top.userData.cells = [a]; mapGroup.add(top); stairObjs.push(top);
+    const bot = makeHatch(true); setAt(bot, b2, 0); bot.userData.cells = [b2]; mapGroup.add(bot); stairObjs.push(bot);
+  }
+  if (B1 >= 0) buildUnderground(m, LVS[B1]);
   // 열쇠 + 잠긴 상자
   keyObjs = new Map();
   for (const kk of m.keys) {
@@ -332,6 +351,85 @@ R3.setMap = function (m) {
   applyModeVisuals();
   if (R3.camMode === 'orbit') R3.resetCamera();
 };
+// v21: 해치 — 지상: 나무 테두리의 어두운 구멍 + 사다리 끝 + 🕳️ / 지하: 위로 올라가는 사다리 + 빛 새는 구멍
+function makeHatch(under) {
+  const g = new THREE.Group(), wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.7 });
+  if (!under) {
+    const pit = new THREE.Mesh(new THREE.CircleGeometry(0.4, 20), new THREE.MeshBasicMaterial({ color: 0x020203 })); pit.rotation.x = -Math.PI / 2; pit.position.y = 0.02; g.add(pit);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.06, 6, 20), wood); rim.rotation.x = Math.PI / 2; rim.position.y = 0.04; g.add(rim);
+    for (const s of [-1, 1]) { const r = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 0.05), wood); r.position.set(0.18 * s, 0.15, 0); g.add(r); }
+  } else {
+    for (const s of [-1, 1]) { const r = new THREE.Mesh(new THREE.BoxGeometry(0.06, FLOOR_Y, 0.06), wood); r.position.set(0.2 * s, FLOOR_Y / 2, -0.3); g.add(r); }
+    for (let i = 0; i < 8; i++) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.05), wood); st.position.set(0, 0.3 + i * 0.38, -0.3); g.add(st); }
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.1, 16), new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.35, depthWrite: false })); shaft.position.y = 0.03; g.add(shaft);
+  }
+  const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(under ? '⬆' : '🕳️', '#c89a5a'), transparent: true, depthWrite: false })); lab.scale.set(0.5, 0.5, 1); lab.position.y = 1.3; g.add(lab);
+  g.userData = { label: lab }; return g;
+}
+// v21: 지하 — 횃불(인스턴스 막대 + 불꽃 점 하나로 그려 가벼움), 공룡, 전설의 무기
+function buildUnderground(m, L) {
+  const cand = [];
+  for (let yy = 1; yy < L.h - 1; yy++) for (let x = 1; x < W - 1; x++) {
+    const i = (L.row0 + yy) * W + x; if (m.g[i] === 0) continue;
+    let dir = null; for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) { const j = i + dx + dy * W; if (m.g[j] === 0 && m.lvl[j] === B1) { dir = [dx, dy]; break; } }
+    if (dir) cand.push([i, dir]);
+  }
+  let seed = 1234567; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let k = cand.length - 1; k > 0; k--) { const j = Math.floor(rnd() * (k + 1)); [cand[k], cand[j]] = [cand[j], cand[k]]; }
+  for (const [i, dir] of cand) { if (torchList.length >= 70) break; if (torchList.every((t) => Math.abs(t.i % W - i % W) + Math.abs(m.ay[t.i] - m.ay[i]) >= 5)) torchList.push({ i, dir }); }
+  const y0 = L.lz * FLOOR_Y, stick = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.035, 0.05, 0.36, 5), new THREE.MeshStandardMaterial({ color: 0x4a3020, roughness: 0.8 }), Math.max(1, torchList.length));
+  const pos = new Float32Array(torchList.length * 3);
+  torchList.forEach((t, n) => {
+    const x = wx(t.i % W) + t.dir[0] * 0.52, z = wz(m.ay[t.i]) + t.dir[1] * 0.52; t.x = x; t.z = z; t.y = y0 + 0.98;
+    tmpQ.setFromAxisAngle(tmpV.set(t.dir[1], 0, -t.dir[0]), 0.5); tmpM.compose(tmpV.set(x, y0 + 0.78, z), tmpQ, tmpS); stick.setMatrixAt(n, tmpM);
+    pos[n * 3] = x; pos[n * 3 + 1] = t.y; pos[n * 3 + 2] = z;
+  });
+  stick.userData.ug = true; mapGroup.add(stick);
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  torchPts = new THREE.Points(geo, new THREE.PointsMaterial({ map: getGlowTex(), color: 0xff9a3a, size: 0.9, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+  torchPts.userData.ug = true; torchPts.userData.stick = stick; mapGroup.add(torchPts);
+  dinoObj = makeDino(); dinoObj.visible = false; mapGroup.add(dinoObj);
+  weaponObj = makeWeapon(); weaponObj.visible = false; mapGroup.add(weaponObj);
+}
+// 2×2 큰 공룡 (티라노 느낌): 몸통·꼬리·목·머리(턱이 열림)·이빨·작은 팔·굵은 다리·빛나는 눈
+function makeDino() {
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body);
+  const skin = new THREE.MeshStandardMaterial({ color: 0x5a8a40, roughness: 0.8, emissive: 0x23401a, emissiveIntensity: 1 }), belly = new THREE.MeshStandardMaterial({ color: 0xb8a070, roughness: 0.85, emissive: 0x3a3020, emissiveIntensity: 1 }), dark = new THREE.MeshStandardMaterial({ color: 0x2f4a22, roughness: 0.8 });
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.62, 14, 10), skin); torso.scale.set(0.85, 0.8, 1.35); torso.position.set(0, 1.25, 0); torso.castShadow = true; body.add(torso);
+  const bel = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8), belly); bel.scale.set(0.8, 0.7, 1.2); bel.position.set(0, 1.08, 0.12); body.add(bel);
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(0.38, 1.7, 10), skin); tail.rotation.x = -Math.PI / 2 - 0.25; tail.position.set(0, 1.25, -1.35); tail.castShadow = true; body.add(tail);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.36, 0.7, 10), skin); neck.rotation.x = 0.7; neck.position.set(0, 1.7, 0.72); body.add(neck);
+  const head = new THREE.Group(); head.position.set(0, 2.0, 0.98); body.add(head);
+  const skull = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.36, 0.78), skin); skull.position.set(0, 0.06, 0.28); skull.castShadow = true; head.add(skull);
+  const jaw = new THREE.Group(); jaw.position.set(0, -0.08, 0.0); head.add(jaw);
+  const jm = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.12, 0.7), dark); jm.position.set(0, -0.06, 0.3); jaw.add(jm);
+  const toothM = new THREE.MeshStandardMaterial({ color: 0xf2efe0, roughness: 0.4 });
+  for (let i = 0; i < 6; i++) { for (const s of [-1, 1]) { const t = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.1, 4), toothM); t.rotation.x = Math.PI; t.position.set(0.19 * s, -0.14, 0.12 + i * 0.1); head.add(t); } }
+  const eyeM = new THREE.MeshBasicMaterial({ color: 0xffd23a });
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 6), eyeM); e.position.set(0.24 * s, 0.17, 0.2); head.add(e); }
+  for (let i = 0; i < 5; i++) { const sp = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.22, 4), dark); sp.position.set(0, 1.78 - i * 0.04, 0.35 - i * 0.38); body.add(sp); }
+  const arms = []; for (const s of [-1, 1]) { const a = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.32, 6), skin); a.position.set(0.36 * s, 1.25, 0.62); a.rotation.x = 0.9; body.add(a); arms.push(a); }
+  const legs = []; for (const s of [-1, 1]) {
+    const leg = new THREE.Group(); leg.position.set(0.38 * s, 1.05, -0.1); g.add(leg);
+    const th = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.72, 8), skin); th.position.y = -0.36; th.castShadow = true; leg.add(th);
+    const ft = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.45), dark); ft.position.set(0, -0.98, 0.1); leg.add(ft);
+    const sh = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.1, 0.4, 6), skin); sh.position.set(0, -0.78, 0); leg.add(sh); legs.push(leg);
+  }
+  const lab = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🦖', '#c8ff6a'), transparent: true, depthWrite: false })); lab.scale.set(0.8, 0.8, 1); lab.position.y = 3.0; g.add(lab);
+  g.userData = { body, head, jaw, legs, tail, label: lab, last: null, walk: 0 };
+  return g;
+}
+// 거인 퇴치 번개창: 금빛 삼지창 + 빛 + 빛기둥
+function makeWeapon() {
+  const g = new THREE.Group(), gold = new THREE.MeshStandardMaterial({ color: 0xffd24a, metalness: 0.8, roughness: 0.25, emissive: 0x8a5a00, emissiveIntensity: 1.2 });
+  const inner = new THREE.Group(); inner.position.y = 0.75; g.add(inner);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.0, 8), gold); inner.add(shaft);
+  for (const s of [-1, 0, 1]) { const p = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.28, 6), gold); p.position.set(0.12 * s, 0.62 - Math.abs(s) * 0.04, 0); inner.add(p); }
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.04), gold); bar.position.y = 0.48; inner.add(bar);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: getGlowTex(), color: 0x7fd8ff, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.8 })); glow.scale.set(1.6, 1.6, 1); glow.position.y = 0.8; g.add(glow);
+  const bm = makeBeam(0x7fd8ff, 5); bm.material.opacity = 0.25; g.add(bm);
+  g.userData = { inner, glow }; return g;
+}
 // 계단: 칸 안에서 빙글빙글 올라가는 디딤판 + 기둥 + ⬆ 표시
 function makeStairs() {
   const g = new THREE.Group(), mat = new THREE.MeshStandardMaterial({ color: 0xc9a46a, roughness: 0.7 }), rail = new THREE.MeshStandardMaterial({ color: 0x6b4a2a, roughness: 0.6 });
@@ -425,7 +523,8 @@ function makePill() {
 
 R3.resetCamera = function () {
   // 화면 비율에 맞춰 미로 전체가 보이도록
-  const fit = Math.max(FH * 1.05, (W * 1.0) / Math.max(0.5, camera.aspect)), y0 = focusF * FLOOR_Y;
+  const Lh = map && map.levels && map.levels[focusF] ? map.levels[focusF].h : FH;
+  const fit = Math.max(Lh * 1.05, (W * 1.0) / Math.max(0.5, camera.aspect)), y0 = LZ(focusF) * FLOOR_Y;
   camera.position.set(0, y0 + fit * 1.04, fit * 0.66);
   controls.target.set(0, y0, 0.6); controls.update();
 };
@@ -437,7 +536,7 @@ R3.smash = function (cells, giant) {
     const n = wallIndex[c]; if (n < 0) continue;
     const wm = wallsMeshes[cellF(c)]; wm.setMatrixAt(n, zeroM); ghostWalls[cellF(c)].setMatrixAt(n, zeroM); wallIndex[c] = -1;
     wm.instanceMatrix.needsUpdate = true; ghostWalls[cellF(c)].instanceMatrix.needsUpdate = true;
-    const cx = wx(c % W), cz = wz((c / W) | 0), hgt = 0.95 * wm.scale.y, by = fy(c);
+    const cx = wx(c % W), cz = wzc(c), hgt = 0.95 * wm.scale.y, by = fy(c);
     const mat = new THREE.MeshStandardMaterial({ color: 0x8d96d0, roughness: 0.8, transparent: true, opacity: 1 });
     for (let k = 0; k < 16; k++) {
       const m = new THREE.Mesh(debrisGeo, mat); const sc = 0.6 + Math.random() * 1.4; m.scale.setScalar(sc);
@@ -458,7 +557,7 @@ R3.fx = function (list, opt) {
   if (!map) return;
   const tps = (opt && opt.tps) || 10, nowS = performance.now() / 1000;
   for (const e of list) {
-    const cx = e.cell != null ? wx(e.cell % W) : 0, cz = e.cell != null ? wz((e.cell / W) | 0) : 0, cyF = e.cell != null ? fy(e.cell) : e.from != null ? fy(e.from) : 0;
+    const cx = e.cell != null ? wx(e.cell % W) : 0, cz = e.cell != null ? wzc(e.cell) : 0, cyF = e.cell != null ? fy(e.cell) : e.from != null ? fy(e.from) : 0;
     if (e.t === 'smoke') {
       const dur = (e.turns || 6) / tps + 0.8, r = (e.radius || 3) * 0.75, grp = new THREE.Group(); grp.position.set(cx, cyF, cz);
       const puffs = [];
@@ -471,7 +570,7 @@ R3.fx = function (list, opt) {
       addFx(grp, dur, (t, dt) => { const fin = Math.min(1, t / 0.35), fout = Math.max(0, Math.min(1, (dur - t) / 0.8)); for (const p of puffs) { p.material.opacity = 0.75 * fin * fout; p.position.y += p.userData.vy * dt; const k = p.userData.sc * (1 + t * 0.25); p.scale.set(k, k, 1); p.material.rotation += p.userData.sp * dt; } });
       shakeAmt = Math.max(shakeAmt, 0.08);
     } else if (e.t === 'shot') {
-      const fx = wx(e.from % W), fz = wz((e.from / W) | 0), tx = wx(e.to % W), tz = wz((e.to / W) | 0);
+      const fx = wx(e.from % W), fz = wzc(e.from), tx = wx(e.to % W), tz = wzc(e.to);
       const len = Math.hypot(tx - fx, tz - fz), tracer = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, len, 6), new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
       tracer.rotation.z = Math.PI / 2; tracer.rotation.y = -Math.atan2(tz - fz, tx - fx); tracer.position.set((fx + tx) / 2, cyF + 0.75, (fz + tz) / 2);
       addFx(tracer, 0.25, (t) => { tracer.material.opacity = 1 - t / 0.25; });
@@ -481,16 +580,28 @@ R3.fx = function (list, opt) {
       const hit = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.miss ? '💨' : '💥'), transparent: true, depthWrite: false })); hit.position.set(tx, cyF + 1.6, tz); hit.scale.set(1.1, 1.1, 1);
       addFx(hit, 0.6, (t) => { hit.material.opacity = 1 - t / 0.6; const k = 1.1 + t; hit.scale.set(k, k, 1); });
       R3.muzzleT = nowS; shakeAmt = Math.max(shakeAmt, R3.camMode === 'fpv' ? 0.12 : 0.15);
-    } else if (['roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn', 'snakeStun', 'lunge'].includes(e.t)) {
-      const col = { roar: 0xff3b3b, tracker: 0x59e39a, pickup: 0xffe14a, cloak: 0x9fd0ff, boost: 0xff9a2a, spawn: 0xffffff, lever: 0x7dff7d, gem: 0x40e0ff, pedestal: 0x40e0ff, chest: 0xffd54a, plate: 0xffd54a, pill: 0xff5fd2, pillSpawn: 0xff9fe8, eat: 0x3fe060, tailgrab: 0xc89a5a, snakeUp: 0x8a6a40, respawn: 0xffffff, snakeStun: 0xffe14a, lunge: 0x7dff9a }[e.t];
-      const big = { roar: 9, tracker: 3, chest: 5, eat: 4, tailgrab: 3, plate: 1 }[e.t] || 1.6, dur = e.t === 'roar' || e.t === 'chest' || e.t === 'eat' ? 1.4 : 0.8;
+    } else if (['roar', 'tracker', 'pickup', 'cloak', 'boost', 'spawn', 'lever', 'gem', 'pedestal', 'chest', 'plate', 'pill', 'pillSpawn', 'eat', 'tailgrab', 'snakeUp', 'respawn', 'snakeStun', 'lunge', 'dinoBite', 'dinoRoar', 'weapon', 'slay', 'hatch'].includes(e.t)) {
+      if (e.t === 'dinoRoar') { R3.dinoRoarT = nowS; shakeAmt = Math.max(shakeAmt, 0.3); }
+      if (e.t === 'dinoBite' || e.t === 'weapon' || e.t === 'slay') {
+        shakeAmt = Math.max(shakeAmt, e.t === 'weapon' ? 0.1 : 0.35); if (e.t === 'dinoBite') R3.dinoRoarT = nowS;
+        const ic = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex(e.t === 'dinoBite' ? '🦖' : e.t === 'weapon' ? '🔱' : '☠️'), transparent: true, depthWrite: false })); ic.position.set(cx, cyF + 1.6, cz);
+        addFx(ic, 2.0, (t) => { const k = 0.8 + Math.min(t, 0.4) * 2.5; ic.scale.set(k, k, 1); ic.material.opacity = t < 1.3 ? 1 : Math.max(0, 1 - (t - 1.3) / 0.7); });
+      }
+      if (e.t === 'slay' && e.from != null) { // 번개: 도망자 → 거인 푸른 섬광 막대
+        const fx0 = wx(e.from % W), fz0 = wzc(e.from), dx = cx - fx0, dz = cz - fz0, len = Math.hypot(dx, dz) || 0.1;
+        const bolt = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, len), new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+        bolt.position.set((cx + fx0) / 2, cyF + 0.9, (cz + fz0) / 2); bolt.rotation.y = Math.atan2(dx, dz);
+        addFx(bolt, 0.5, (t) => { bolt.material.opacity = (1 - t / 0.5) * (0.6 + 0.4 * Math.sin(t * 80)); bolt.scale.set(1 + Math.sin(t * 60) * 0.5, 1, 1); });
+      }
+      const col = { roar: 0xff3b3b, tracker: 0x59e39a, pickup: 0xffe14a, cloak: 0x9fd0ff, boost: 0xff9a2a, spawn: 0xffffff, lever: 0x7dff7d, gem: 0x40e0ff, pedestal: 0x40e0ff, chest: 0xffd54a, plate: 0xffd54a, pill: 0xff5fd2, pillSpawn: 0xff9fe8, eat: 0x3fe060, tailgrab: 0xc89a5a, snakeUp: 0x8a6a40, respawn: 0xffffff, snakeStun: 0xffe14a, lunge: 0x7dff9a, dinoBite: 0xff4020, dinoRoar: 0xc8ff6a, weapon: 0x7fd8ff, slay: 0x9fe8ff, hatch: 0xc89a5a }[e.t];
+      const big = { roar: 9, tracker: 3, chest: 5, eat: 4, tailgrab: 3, plate: 1, dinoRoar: 10, dinoBite: 4, weapon: 6, slay: 3 }[e.t] || 1.6, dur = ['roar', 'chest', 'eat', 'dinoRoar', 'dinoBite', 'weapon'].includes(e.t) ? 1.4 : 0.8;
       if (e.t === 'eat') { shakeAmt = Math.max(shakeAmt, 0.3); const bite = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex('🐍'), transparent: true, depthWrite: false })); bite.position.set(cx, cyF + 1.4, cz); addFx(bite, 2.2, (t) => { const k = 0.9 + Math.min(t, 0.5) * 2.4 + Math.sin(t * 9) * 0.05; bite.scale.set(k, k, 1); bite.material.opacity = t < 1.4 ? 1 : Math.max(0, 1 - (t - 1.4) / 0.8); }); }
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.4, 0.55, 40), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide, fog: false }));
       ring.rotation.x = -Math.PI / 2; ring.position.set(cx, cyF + 0.08, cz);
       addFx(ring, dur, (t) => { const k = 1 + (t / dur) * big; ring.scale.set(k, k, k); ring.material.opacity = 0.9 * (1 - t / dur); });
       if (e.t === 'roar') { shakeAmt = Math.max(shakeAmt, 0.25); if (giantObjs[e.giant]) giantObjs[e.giant].userData.roarT = nowS; }
     } else if (e.t === 'vault') { // 벽넘기: 벽 위로 초록 호 + 🤸
-      const ox = wx(e.over % W), oz = wz((e.over / W) | 0), tx = wx(e.to % W), tz = wz((e.to / W) | 0);
+      const ox = wx(e.over % W), oz = wzc(e.over), tx = wx(e.to % W), tz = wzc(e.to);
       const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(cx, cyF + 0.3, cz), new THREE.Vector3(ox, cyF + 3.2, oz), new THREE.Vector3(tx, cyF + 0.3, tz));
       const arc = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.06, 6, false), new THREE.MeshBasicMaterial({ color: 0x7dffc8, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
       addFx(arc, 1.2, (t) => { arc.material.opacity = 0.9 * (1 - t / 1.2); });
@@ -537,9 +648,7 @@ function applyModeVisuals() {
   const f = R3.camMode === 'fpv';
   for (const wm of wallsMeshes) { wm.scale.y = f ? FPV.WALL_SCALE : 1; wm.updateMatrixWorld(); }
   lastFocus = -1; // 층 보이기 다시 계산
-  scene.fog.near = f ? FPV.FOG_NEAR : 30; scene.fog.far = f ? FPV.FOG_FAR : 70;
-  scene.fog.color.setHex(f ? FPV.BG : 0x0b0d1a); scene.background.setHex(f ? FPV.BG : 0x0b0d1a);
-  hemiLight.intensity = f ? 0.55 : 1.25; dirLight.intensity = f ? 1.1 : 2.6; lantern.intensity = f ? 2.6 : 0;
+  applyLevelLight();
   beacons.forEach((b) => (b.visible = f)); eyeGlows.forEach((e) => (e.visible = f));
   for (const o of itemObjs.values()) o.children.forEach((c) => { if (beacons.includes(c)) c.visible = f; });
   for (const o of [...stairObjs, ...gemObjs.filter(Boolean)]) o.children.forEach((c) => { if (beacons.includes(c)) c.visible = f; });
@@ -587,10 +696,28 @@ function applyFloorVis() {
   for (let f = 0; f < NF; f++) {
     const on = f === focusF;
     wallsMeshes[f].visible = on; tileMeshes[f].visible = on; floorPlanes[f].visible = on || (f < focusF && false);
-    ghostWalls[f].visible = !on && orbit && f > focusF;
+    ghostWalls[f].visible = !on && orbit && LZ(f) > LZ(focusF) && f !== B1;
   }
   doorZoneMesh.visible = focusF === 0;
   for (const d of doorObjs) d.visible = cellF(d.userData.cell) === focusF;
+  const ug = B1 >= 0 && focusF === B1;
+  if (torchPts) { torchPts.visible = ug; torchPts.userData.stick.visible = ug; }
+  applyLevelLight();
+}
+// v21: 지하는 어둡게 (횃불 + 도망자 등불), 지상은 원래 조명
+function applyLevelLight() {
+  const f = R3.camMode === 'fpv', tp = R3.camMode === 'tps', ug = B1 >= 0 && focusF === B1;
+  if (!ug) {
+    scene.fog.near = f ? FPV.FOG_NEAR : 30; scene.fog.far = f ? FPV.FOG_FAR : 70;
+    scene.fog.color.setHex(f ? FPV.BG : 0x0b0d1a); scene.background.setHex(f ? FPV.BG : 0x0b0d1a);
+    hemiLight.intensity = f ? 0.55 : 1.25; dirLight.intensity = f ? 1.1 : 2.6; lantern.intensity = f ? 2.6 : 0;
+    for (const l of torchLights) l.intensity = 0;
+    return;
+  }
+  const bg = 0x030202; scene.fog.color.setHex(bg); scene.background.setHex(bg);
+  if (f) { scene.fog.near = 1; scene.fog.far = 8; hemiLight.intensity = 0.16; dirLight.intensity = 0.1; lantern.intensity = 3.0; }
+  else if (tp) { scene.fog.near = 8; scene.fog.far = 28; hemiLight.intensity = 0.42; dirLight.intensity = 0.32; lantern.intensity = 2.8; }
+  else { scene.fog.near = 45; scene.fog.far = 120; hemiLight.intensity = 0.5; dirLight.intensity = 0.55; lantern.intensity = 1.6; }
 }
 const onF = (c) => cellF(c) === focusF;
 R3.render = function (s) {
@@ -599,18 +726,19 @@ R3.render = function (s) {
   // 층 전환
   const nf = Math.max(0, Math.min(NF - 1, s.viewFloor | 0));
   if (nf !== focusF || lastFocus < 0 || lastCamForVis !== R3.camMode) {
-    const dy = (nf - focusF) * FLOOR_Y; focusF = nf;
+    const dy = (LZ(nf) - LZ(focusF)) * FLOOR_Y; focusF = nf;
     if (R3.camMode !== 'fpv' && dy && lastFocus >= 0) { controls.target.y += dy; camera.position.y += dy; }
     lastFocus = nf; lastCamForVis = R3.camMode; applyFloorVis(); lastFogVer = -1; lastVisionVer = -1;
   }
   // 위층 유리 벽: 카메라가 위층 가까이 내려오면(1층 확대) 시야를 가리므로 숨김
-  if (R3.camMode === 'orbit') for (let f = focusF + 1; f < NF; f++) { const show = camera.position.y - f * FLOOR_Y > 9; if (ghostWalls[f].visible !== show) ghostWalls[f].visible = show; }
+  if (R3.camMode === 'orbit') for (let f = 0; f < NF; f++) { if (f === focusF || f === B1 || LZ(f) <= LZ(focusF)) continue; const show = camera.position.y - LZ(f) * FLOOR_Y > 9; if (ghostWalls[f].visible !== show) ghostWalls[f].visible = show; }
   // 도망자
   if (runnerObj) {
     const caught = s.result === 'giant', escaped = s.result === 'runner';
     runnerObj.visible = !caught && R3.camMode !== 'fpv'; // 1인칭에서는 자기 몸을 숨김
     runnerObj.position.set(wx(s.runner.x), (s.runner.f || 0) * FLOOR_Y + (escaped ? Math.min(1.5, (s.endT || 0) * 1.5) : 0) + (s.runner.jump || 0) * 1.6, wz(s.runner.y)); // 벽넘기 점프
-    if (Math.round(s.runner.f || 0) !== focusF && R3.camMode !== 'fpv') runnerObj.visible = false;
+    if (LV(s.runner) !== focusF && R3.camMode !== 'fpv') runnerObj.visible = false;
+    if (B1 >= 0 && focusF === B1 && R3.camMode !== 'fpv') lantern.position.set(runnerObj.position.x, runnerObj.position.y + 1.7, runnerObj.position.z);
     if (runnerObj.userData.gem) { runnerObj.userData.gem.visible = !!s.runner.gem; runnerObj.userData.gem.rotation.y = now * 3; }
     if (s.runner.dx || s.runner.dy) runnerObj.rotation.y = angLerp(runnerObj.rotation.y, Math.atan2(s.runner.dx, s.runner.dy), 0.25);
     const u = runnerObj.userData; u.body.position.y = 0.38 + Math.abs(Math.sin(now * 12)) * 0.05;
@@ -624,11 +752,11 @@ R3.render = function (s) {
   // 거인
   for (let k = s.giants.length; k < giantObjs.length; k++) giantObjs[k].visible = false; // 아직 등장하지 않은 거인(최대 10명분 준비)
   s.giants.forEach((gs, k) => {
-    if (gs.out && gs.home && mapGroup) { const rm = respawnMark(k); if (rm.parent !== mapGroup) mapGroup.add(rm); drawRespawn(k, gs.outSec); rm.position.set(wx(gs.home.x), gs.home.f * FLOOR_Y, wz(gs.home.y)); rm.visible = gs.home.f === focusF; rm.userData.ring.scale.setScalar(1 + 0.15 * Math.sin(now * 5)); }
+    if (gs.out && gs.home && mapGroup) { const rm = respawnMark(k); if (rm.parent !== mapGroup) mapGroup.add(rm); drawRespawn(k, gs.outSec); rm.position.set(wx(gs.home.x), gs.home.f * FLOOR_Y, wz(gs.home.y)); rm.visible = LV(gs.home) === focusF && !gs.dead; rm.userData.ring.scale.setScalar(1 + 0.15 * Math.sin(now * 5)); }
     else if (respawnMarks[k]) respawnMarks[k].visible = false;
     const o = giantObjs[k]; if (!o) return;
     o.position.set(wx(gs.x), (gs.f || 0) * FLOOR_Y, wz(gs.y));
-    o.visible = !gs.out && Math.round(gs.f || 0) === focusF;
+    o.visible = !gs.out && LV(gs) === focusF;
     o.rotation.y = angLerp(o.rotation.y, Math.atan2(gs.fx, gs.fy), 0.2);
     const sw = Math.sin(now * (gs.dash ? 16 : 7)) * 0.35;
     o.userData['arm-1'].rotation.x = sw; o.userData['arm1'].rotation.x = -sw;
@@ -658,7 +786,7 @@ R3.render = function (s) {
   // 시야 타일 (벽 가림 반영)
   if (s.showVision && s.visionVer !== lastVisionVer) {
     lastVisionVer = s.visionVer; let n = 0;
-    for (const i of s.vision) { if (!onF(i)) continue; tmpM.makeTranslation(wx(i % W), 0.02 + fy(i), wz((i / W) | 0)); visionMesh.setMatrixAt(n++, tmpM); }
+    for (const i of s.vision) { if (!onF(i)) continue; tmpM.makeTranslation(wx(i % W), 0.02 + fy(i), wzc(i)); visionMesh.setMatrixAt(n++, tmpM); }
     visionMesh.count = n; visionMesh.instanceMatrix.needsUpdate = true;
   }
   visionMesh.visible = s.showVision;
@@ -692,7 +820,8 @@ R3.render = function (s) {
     fogMesh.visible = !!s.fog && R3.camMode !== 'fpv';
     if (fogMesh.visible && s.seen && s.seenVer !== lastFogVer) {
       lastFogVer = s.seenVer; let n = 0;
-      for (let i = focusF * W * FH; i < (focusF + 1) * W * FH; i++) if (!s.seen[i]) { tmpM.makeTranslation(wx(i % W), fy(i), wz((i / W) | 0)); fogMesh.setMatrixAt(n++, tmpM); }
+      const FL = map.levels ? map.levels[focusF] : { row0: focusF * FH, h: FH };
+      for (let i = FL.row0 * W; i < (FL.row0 + FL.h) * W; i++) if (!s.seen[i]) { tmpM.makeTranslation(wx(i % W), fy(i), wzc(i)); fogMesh.setMatrixAt(n++, tmpM); }
       fogMesh.count = n; fogMesh.instanceMatrix.needsUpdate = true;
     }
   }
@@ -732,6 +861,8 @@ R3.render = function (s) {
   });
   // 계단 표시
   for (const o of stairObjs) { o.visible = o.userData.cells.some((c) => onF(c)) && (o.userData.steps ? cellF(o.userData.cells[0]) === focusF : true); if (o.userData.label) o.userData.label.position.y = 1.3 + Math.sin(now * 3) * 0.1; }
+  // v21 공룡 · 무기 · 횃불
+  updateUnderground(s, now);
   // 알약
   const ps = s.pills || [], pset = new Set(ps);
   for (const c of ps) { let o = pillObjs.get(c); if (!o) { o = makePill(); setAt(o, c, 0); mapGroup.add(o); pillObjs.set(c, o); } o.visible = onF(c); o.userData.cap.rotation.y = now * 2 + c; o.userData.cap.position.y = 0.32 + Math.sin(now * 4 + c) * 0.05; }
@@ -793,11 +924,44 @@ R3.render = function (s) {
   } else renderer.render(scene, camera);
 };
 // 도망자가 향하는 방향(yaw) 목표: 움직이면 이동 방향, 멈춰 있고 앞이 벽이면 가장 길게 트인 방향 (1인칭·3인칭 공용)
-function isWallAt(x, y, off) { return x < 0 || y < 0 || x >= W || y >= FH || (wallIndex && wallIndex[(y + off) * W + x] >= 0) || barObjs.has((y + off) * W + x); }
+function cellAtL(x, y, lv) { const L = map && map.levels ? map.levels[lv] : { row0: lv * FH, h: FH, zOff: 0 }; if (!L) return -1; const ly = y + L.zOff; if (x < 0 || ly < 0 || x >= W || ly >= L.h) return -1; return (L.row0 + ly) * W + x; }
+function isWallAt(x, y, lv) { const c = cellAtL(x, y, lv); return c < 0 || (wallIndex && wallIndex[c] >= 0) || barObjs.has(c); }
+// v21: 공룡 위치·걸음·턱, 무기 반짝임, 횃불 깜빡임 + 가까운 횃불에 실제 빛
+function updateUnderground(s, now) {
+  const ug = B1 >= 0 && focusF === B1;
+  if (dinoObj) {
+    const d = s.dino, u = dinoObj.userData;
+    dinoObj.visible = !!d && ug;
+    if (d && dinoObj.visible) {
+      const fpS = R3.camMode === 'fpv' ? 1.25 : 1;
+      dinoObj.position.set(wx(d.x + 0.5), LZ(B1) * FLOOR_Y, wz(d.y + 0.5)); dinoObj.scale.setScalar(fpS);
+      if (d.fx || d.fy) dinoObj.rotation.y = angLerp(dinoObj.rotation.y, Math.atan2(d.fx, d.fy), 0.12);
+      const moving = !!d.moving, sp = d.chase ? 9 : 5; u.walk += moving ? 0.016 * sp : 0;
+      u.legs[0].rotation.x = Math.sin(u.walk) * 0.55; u.legs[1].rotation.x = -Math.sin(u.walk) * 0.55;
+      u.body.position.y = Math.abs(Math.sin(u.walk)) * 0.06; u.body.rotation.z = Math.sin(u.walk) * 0.03;
+      u.tail.rotation.z = Math.sin(now * 2.2) * 0.25;
+      const roar = now - (R3.dinoRoarT || -9) < 1.4 || s.result === 'giant' && s.catcher === -4;
+      u.jaw.rotation.x = roar ? 0.55 + Math.sin(now * 18) * 0.08 : d.chase ? 0.25 + Math.sin(now * 6) * 0.15 : 0.06 + Math.sin(now * 1.5) * 0.04;
+      u.head.rotation.x = roar ? -0.35 : Math.sin(now * 1.3) * 0.08;
+      u.label.visible = R3.camMode !== 'fpv';
+    }
+  }
+  if (weaponObj) {
+    const w = s.weapon; weaponObj.visible = !!w && !w.taken && ug && onF(w.cell) && (!s.fog || (s.seen && s.seen[w.cell]));
+    if (weaponObj.visible) { setAt(weaponObj, w.cell, 0); weaponObj.userData.inner.rotation.y = now * 1.6; weaponObj.userData.inner.position.y = 0.75 + Math.sin(now * 2.5) * 0.08; weaponObj.userData.glow.material.opacity = 0.6 + 0.3 * Math.sin(now * 5); }
+  }
+  if (torchPts && ug) {
+    torchPts.material.size = (R3.camMode === 'fpv' ? 0.7 : 0.95) * (0.9 + 0.1 * Math.sin(now * 13));
+    if (torchLights.length && runnerObj) {
+      const p = runnerObj.position, near = torchList.slice().sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
+      torchLights.forEach((l, k) => { const t = near[k]; if (!t) { l.intensity = 0; return; } l.position.set(t.x, t.y, t.z); l.intensity = 2.2 + 0.5 * Math.sin(now * 11 + k * 2) + 0.3 * Math.sin(now * 23 + k); });
+    }
+  } else for (const l of torchLights) l.intensity = 0;
+}
 function runYawTarget(R, cur) {
   let target = cur;
   if (R.dx || R.dy) return Math.atan2(-R.dx, -R.dy);
-  const off = Math.round(R.f || 0) * FH, cx = Math.round(R.x), cy = Math.round(R.y), wall = (x, y) => isWallAt(x, y, off);
+  const off = LV(R), cx = Math.round(R.x), cy = Math.round(R.y), wall = (x, y) => isWallAt(x, y, off);
   const fx = Math.round(-Math.sin(cur)), fy = Math.round(-Math.cos(cur));
   if (wall(cx + fx, cy + fy)) {
     let best = -1, bd = null;
@@ -817,7 +981,7 @@ function updateTps(s, now) {
   tps.yaw = Math.atan2(Math.sin(tps.yaw), Math.cos(tps.yaw));
   const fx = -Math.sin(tps.yaw), fz = -Math.cos(tps.yaw);
   // 몸(가슴 높이)에서 카메라 쪽으로 칸을 따라가며 벽에 막히는 거리 찾기 (벽 높이 0.95)
-  const off = Math.round(R.f || 0) * FH, baseY = Math.round(R.f || 0) * FLOOR_Y, chest = 0.55;
+  const off = LV(R), baseY = (R.f || 0) * FLOOR_Y, chest = 0.55;
   let allow = TPS.DIST;
   for (let t = 0.3; t <= TPS.DIST; t += 0.1) {
     const h = chest + ((TPS.HEIGHT - chest) * t) / TPS.DIST; if (h > 1.0) break;
@@ -854,7 +1018,7 @@ function updateFpv(s, now) {
       const dx = o.position.x - p.x, dz = o.position.z - p.z, d = Math.hypot(dx, dz);
       if (d < 1.2 || d > 5.5 || (dx * fx + dz * fz) / d < 0.9) continue;
       if (!o.visible) continue;
-      let clear = true; for (let t = 0.4; t < d - 0.4 && clear; t += 0.25) { const cx = Math.round(R.x + (dx * t) / d), cy = Math.round(R.y + (dz * t) / d); if (wallIndex && wallIndex[(cy + Math.round(R.f || 0) * FH) * W + cx] >= 0) clear = false; }
+      let clear = true; for (let t = 0.4; t < d - 0.4 && clear; t += 0.25) { const cx = Math.round(R.x + (dx * t) / d), cy = Math.round(R.y + (dz * t) / d); if (isWallAt(cx, cy, LV(R))) clear = false; }
       if (clear) tPitch = Math.max(tPitch, Math.min(0.42, Math.atan2(1.9 * FPV.GIANT_SCALE - FPV.EYE, d) * 0.75));
     }
   }
@@ -900,7 +1064,7 @@ R3.setAutoRotate = function (on, speed) { if (!controls) return; controls.autoRo
 R3.setPixelRatioCap = function (cap) { if (!renderer) return; renderer.setPixelRatio(STREAM ? STREAM_Q : Math.min(window.devicePixelRatio || 1, cap)); R3.resize(); };
 R3.fpvState = fpv; // 테스트/스크린샷용 (1인칭 시선 상태 읽기)
 // 스크린샷/연출용: 특정 칸(층 f)을 가까이서 내려다보기 (전체 시점 상태에서 사용)
-R3.lookAtCell = function (x, y, f, h = 7, back = 4.5, side = 0) { if (!controls) return; const ty = f * FLOOR_Y; controls.target.set(wx(x), ty, wz(y)); camera.position.set(wx(x) + side, ty + h, wz(y) + back); controls.update(); };
+R3.lookAtCell = function (x, y, f, h = 7, back = 4.5, side = 0) { if (!controls) return; const ty = LZ(f) * FLOOR_Y; controls.target.set(wx(x), ty, wz(y)); camera.position.set(wx(x) + side, ty + h, wz(y) + back); controls.update(); };
 R3.info = () => ({ calls: renderer ? renderer.info.render.calls : 0, triangles: renderer ? renderer.info.render.triangles : 0, mobile: MOBILE });
 
 try {

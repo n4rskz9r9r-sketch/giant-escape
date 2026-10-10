@@ -8,7 +8,7 @@
   const G = (n) => (n === '-1' || n === '-2' ? 'the Snake' : 'Giant ' + n); // catcher -2 → "거인-1"
   const giantList = (s) => s.split('·').join(' & ');
   const GL = (l) => (l.includes('·') ? 'Giants ' : 'Giant ') + giantList(l);
-  const OBJ = { '연막탄을': 'a Smoke Bomb', '부스터를': 'a Booster', '투명망토를': 'an Invisibility Cloak', '샷건을': 'a Shotgun', '벽넘기 신발을': 'Vault Shoes', '바리케이드를': 'a Barricade', '포효 뿔피리를': 'a Roar Horn', '냄새 추적기를': 'a Scent Tracker' };
+  const OBJ = { '번개창을': 'the Lightning Spear', '연막탄을': 'a Smoke Bomb', '부스터를': 'a Booster', '투명망토를': 'an Invisibility Cloak', '샷건을': 'a Shotgun', '벽넘기 신발을': 'Vault Shoes', '바리케이드를': 'a Barricade', '포효 뿔피리를': 'a Roar Horn', '냄새 추적기를': 'a Scent Tracker' };
   const MISSION_NAME = { '스위치': 'Switches', '보석 운반': 'Gem Carry', '발판': 'Pressure Plate' };
 
   // 유전자 문구 (engine3.js 의 RUNNER_GENES / GIANT_GENES 와 같은 순서·키)
@@ -55,6 +55,11 @@
     sFloor: ['Floor switching', 'Snake takes the stairs to the floor with more giants', 'Snake tends to stay on its floor'],
     sAmbush: ['Junction ambush', 'Snake learned to lurk at junctions for giants', 'Snake keeps moving without stopping'],
     sLunge: ['Lunge', 'Snake lunges at giants from farther away', 'Snake saves its lunge for point-blank'],
+    delve: ['Underground delve', 'Runner explores the underground maze longer and deeper', 'Runner focuses on surface goals over the underground'],
+    weaponSeek: ['Weapon hunt', 'Runner searches the underground for the hidden giant-slaying weapon', "Runner won't waste time hunting the legendary weapon"],
+    dinoFear: ['Dino avoidance', 'Runner takes the long way around when it hears the Dinosaur', 'Runner squeezes past the Dinosaur'],
+    deepPatrol: ['Underground patrol', 'Giant patrols down in the underground maze', 'Giant only patrols the surface'],
+    dinoDodge: ['Dino avoidance', 'Giant gives the Dinosaur a wide berth', "Giant isn't afraid of the Dinosaur"],
     sDodge: ['Runner dodge', 'Snake keeps away from the Runner to protect its tail', "Snake doesn't mind the Runner"],
   };
   const geneRules = [];
@@ -77,17 +82,35 @@
     // 고정 긴 문단
     [/^👋 ▶ 시작을 누르면 도망자 1명과 거인 (\d+)명이 2층 미로에서 대결합니다.*$/, (m, n) => `👋 Press ▶ Start: 1 Runner vs ${n} Giants in a 2-floor maze. 💥 Giants can smash a wall every 30s, and every 5 Runner wins adds another giant (max 10).`],
     [/^\s*🧰 열쇠는 잠긴 상자 안.*$/, '🧰 Keys sit in locked chests — solve the missions (🕹️ flip switches · 💎 carry the gem · ⏳ hold the plate) to open them. 🐍 The Snake eats 💊 pills to grow and swallows giants — the Runner passes right through it (grab its tail to make it hide). 🌫 The Runner only remembers what it has seen (toggle Full map to reveal all). 🔫 Shotgun: 2 shells, 1 reload every 5s, a hit stuns for 2s (misses more at range). 🎒 Runner items: 💨 Smoke 🚀 Booster 👻 Cloak 🤸 Vault 🧱 Barricade · Giant items: 🔊 Roar 🐾 Scent Tracker 🚧 Barricade. 💥 Each giant smashes inner walls/barricades on a 30s cooldown. 👀 Runner View shows first person. ⚡ Fast Train runs hundreds of games instantly.'],
-    [/^도망자 1명 vs 거인 4명.*$/, '1 Runner vs 4 Giants (+1 giant every 5 Runner wins, max 10) in a 2-floor maze. The 2 keys are in locked chests (🕹️ switches · 💎 gem carry · ⏳ pressure plate missions open them). Grab the keys and escape through Door A or B on 1F to win as the Runner; get caught and the Giants win; if the 🐍 Snake eats 12 giants in one game, the Snake wins (the Runner blocks it with tail grabs and the shotgun). The Snake roams both floors via the stairs, eating 💊 pills and giants to grow. The Runner only knows what it has 🌫 seen, and picks up items (💨 Smoke 🚀 Booster 👻 Cloak 🔫 Shotgun (2 shells) 🧱 Barricade / Giants: 🔊 Roar 🐾 Scent Tracker 🚧 Barricade). 💥 Giants can smash a wall every 30s. All three sides — Runner, Giants and Snake — learn from each other every game.'],
-    [/^🔫 샷건 = 도망자 기본 스킬.*$/, '🔫 Shotgun = Runner\'s base skill (2 shells, 1 reload / 5s), a hit stuns for 2s · 🤸 Vault = jump one inner wall once · 🐍 Eaten giants respawn at start after 5s (default 10 turns/s) · 🏢 Floor button: Auto → 1F → 2F · 🐍 Snake (1, uses stairs): eats only giants, the Runner passes through; step on its tail to make it vanish briefly, a shotgun hit stuns it for 3s · 🐍 The Snake learns too: eat 12 giants in one game to win (rare) · 💥 Wall smash 30s cooldown · 3D: three.js (bundled, MIT) · Drag to rotate · Wheel / pinch to zoom · In Runner View drag to look around · Learning is saved in this browser (localStorage)'],
+    [/^⛏️ 새 지역: 엄청 큰 지하 1층\(B1\)!.*$/, '⛏️ New area: a HUGE underground level (B1)! Climb down through the hatches on 1F. Somewhere down there lies the legendary giant-slaying weapon 🔱 Lightning Spear — but a giant 2×2 🦖 Dinosaur roams the tunnels.'],
+    [/^도망자 1명 vs 거인 4명.*?⛏️.*$/, '1 Runner vs 4 Giants (+1 giant every 5 Runner wins, max 10) in a 2-floor maze. The 2 keys are in locked chests (🕹️ switches · 💎 gem carry · ⏳ pressure plate missions open them). Grab the keys and escape through Door A or B on 1F to win as the Runner; get caught and the Giants win; if the 🐍 Snake eats 20 giants in one game, the Snake wins (the Runner blocks it with tail grabs and the shotgun). The Snake roams both floors via the stairs, eating 💊 pills and giants to grow. The Runner only knows what it has 🌫 seen, and picks up items (💨 Smoke 🚀 Booster 👻 Cloak 🔫 Shotgun (2 shells) 🧱 Barricade / Giants: 🔊 Roar 🐾 Scent Tracker 🚧 Barricade). 💥 Giants can smash a wall every 30s. ⛏️ Below the 1F hatches lies a huge underground maze (B1) hiding the legendary giant-slaying 🔱 Lightning Spear (2 uses) — but a giant 2×2 🦖 Dinosaur roams down there. All three sides — Runner, Giants and Snake — learn from each other every game.'],
+    [/^도망자 1명 vs 거인 4명.*$/, '1 Runner vs 4 Giants (+1 giant every 5 Runner wins, max 10) in a 2-floor maze. The 2 keys are in locked chests (🕹️ switches · 💎 gem carry · ⏳ pressure plate missions open them). Grab the keys and escape through Door A or B on 1F to win as the Runner; get caught and the Giants win; if the 🐍 Snake eats 20 giants in one game, the Snake wins (the Runner blocks it with tail grabs and the shotgun). The Snake roams both floors via the stairs, eating 💊 pills and giants to grow. The Runner only knows what it has 🌫 seen, and picks up items (💨 Smoke 🚀 Booster 👻 Cloak 🔫 Shotgun (2 shells) 🧱 Barricade / Giants: 🔊 Roar 🐾 Scent Tracker 🚧 Barricade). 💥 Giants can smash a wall every 30s. All three sides — Runner, Giants and Snake — learn from each other every game.'],
+    [/^🔫 샷건 = 도망자 기본 스킬.*$/, '🔫 Shotgun = Runner\'s base skill (2 shells, 1 reload / 5s), a hit stuns for 2s · 🤸 Vault = jump one inner wall once · 🐍 Eaten giants respawn at start after 3s (default 10 turns/s) · 🏢 Floor button: Auto → 1F → 2F → B1 · ⛏️ B1: 🔱 Lightning Spear = slay a giant in a straight line within 5 tiles (out for the game, 2 uses) · 🦖 Dinosaur (2×2, B1 only): bites the Runner = Giants win, bites a giant = 10s KO · 🐍 Snake (1, uses stairs): eats only giants, the Runner passes through; step on its tail to make it vanish briefly, a shotgun hit stuns it for 3s · 🐍 The Snake learns too: eat 20 giants in one game to win (rare) · 💥 Wall smash 30s cooldown · 3D: three.js (bundled, MIT) · Drag to rotate · Wheel / pinch to zoom · In Runner View drag to look around · Learning is saved in this browser (localStorage)'],
     [/^매 판이 끝나면 한 세대.*$/, 'After every game, one generation (16–24 games) trains. The Runner brain (17 genes — incl. items, missions, snake) and the Giant team brain (16 genes per giant — new giants clone & mutate the top catcher) face mutated challengers on the same map; the better one survives. The losing side sends 2 challengers and mutates harder.'],
     [/^끄면 도망자가 직접 본 곳만.*$/, 'Off: only what the Runner has seen is lit (fog of war). Runner View always shows the Runner\'s memory.'],
-    [/^보는 층: 자동.*$/, 'Floor shown: Auto (Runner\'s floor) → 1F → 2F'],
+    [/^보는 층: 자동.*$/, 'Floor shown: Auto (Runner\'s floor) → 1F → 2F → B1'],
+    [/^매 판이 끝나면 한 세대.*유전자 22개.*$/, 'After every game, one generation (16–24 games) trains. The Runner brain (22 genes — incl. items, missions, the snake, underground delving, weapon hunting, dino avoidance), the Giant team brain (18 genes per giant — new giants clone & mutate the top catcher) and the Snake brain (8 genes — hunting, respawn ambush, lunge…) face mutated challengers on the same map; the better one survives. The losing side sends extra challengers and mutates harder.'],
     [/^거인과 도망자 3D — AI 대결 · 공진화$/, 'Giants vs Runner 3D — Live AI Battle · Co-Evolution'],
     [/(?:👹)+ 거인과 도망자 3D — AI 실시간 대결 · 공진화/, '👹 Giants vs Runner 3D — Live AI Battle · Co-Evolution'],
     [/^(?:👹)+ 거인과 도망자 3D 🏃 🐍$/, '👹👹👹👹 Giants vs Runner 3D 🏃 🐍'],
     [/^🐍 새 규칙: 뷱도 학습합니다!.*?거인 (\d+)마리.*$/, '🐍 New rule: the Snake learns too! If it eats $1 giants in one game, the Snake wins (Runner and Giants both lose). The Runner fights back by yanking its tail and shooting it with the shotgun.'],
     [/^매 판이 끝나면 한 세대.*$/, 'After every game, one generation (16–24 games) trains. The Runner brain (19 genes — incl. items, missions, blocking the snake), the Giant team brain (16 genes per giant — new giants clone & mutate the top catcher) and the Snake brain (8 genes — hunting, respawn ambush, lunge…) face mutated challengers on the same map; the better one survives. The losing side sends extra challengers and mutates harder.'],
     // 경기 로그
+    // v21 지하 · 무기 · 공룡
+    [/🕳️ 도망자가 해치를 타고 지하 1층으로 내려갔다/, '🕳️ Runner climbed down a hatch into B1'],
+    [/🕳️ 도망자가 지상으로 올라왔다/, '🕳️ Runner climbed back up to the surface'],
+    [/⚡ 도망자가 지하에서 전설의 무기 '거인 퇴치 번개창'을 찾았다! 🔱 \((\d+)번\)/, '⚡ Runner found the legendary weapon underground — the Giant-Slayer Lightning Spear! 🔱 ($1 uses)'],
+    [/⚡ 도망자가 번개창으로 거인(\d+)을 처치했다! ☠️ \(이번 판 복귀 불가 · 남은 (\d+)번\)/, '⚡ Runner struck down Giant $1 with the Lightning Spear! ☠️ (out for this game · $2 uses left)'],
+    [/🦖 공룡이 거인(\d+)을 물어 쓰러뜨렸다! \((\d+)초 뒤 출발점에서 부활\)/, '🦖 The Dinosaur mauled Giant $1! (respawns in $2s)'],
+    [/거인(\d+)이 정신을 차리고 출발점에 다시 나타났다/, 'Giant $1 came to and respawned at the start'],
+    [/🦖 공룡이 도망자를 삼켰다! 지하의 공포…/, '🦖 The Dinosaur swallowed the Runner! Terror of the deep…'],
+    [/🦖 공룡이 도망자를 삼켰다!/, '🦖 The Dinosaur swallowed the Runner!'],
+    [/🦖 공룡이 도망자를 발견했다! 쿵쾅쿵쾅 달려온다/, "🦖 The Dinosaur spotted the Runner! THUD THUD — it's charging"],
+    [/🦖 공룡이 거인(\d+)을 노린다!/, '🦖 The Dinosaur is stalking Giant $1!'],
+    [/도망자가 공룡을 발견했다! 🦖 쿵… 쿵…/, 'Runner spotted the Dinosaur! 🦖 thud… thud…'],
+    [/🦖기절 (\d+)초/, '🦖KO $1s'],
+    [/지하 1층 · 미션을 풀어 상자를 열어라/, 'B1 · Solve missions to open the chests'],
+    [/지하 1층 · 문이 열렸다! 1층 빛을 따라가라/, 'B1 · Doors open! Follow the light on 1F'],
     [/🐍 뷱이 거인 (\d+)\/(\d+)마리째! (\d+)마리만 더 먹으면 뷱 승리/, (m, a, b, c) => `🐍 The Snake has eaten ${a}/${b} giants! ${c} more and the Snake wins`],
     [/🛡️ 도망자가 뷱을 막았다! 꼬리를 잡아 땅속으로 쫓아냈다 \(뷱 (\d+)\/(\d+)\)/, '🛡️ Runner blocked the Snake! Yanked its tail and drove it underground (Snake $1/$2)'],
     [/🛡️ 도망자가 뷱을 쐈다! 🔫 뷱 (\d+)초 기절 — 거인 사냥을 막았다 \(뷱 (\d+)\/(\d+)\)/, '🛡️ Runner shot the Snake! 🔫 Snake stunned $1s — giant hunt stopped (Snake $2/$3)'],
@@ -201,6 +224,7 @@
   ];
   // 단어·짧은 구절 (긴 것 먼저)
   const WORDS = [
+    ['지하 1층', 'B1'], ['공룡 피하기', 'Dodging dino'], ['무기 찾기', 'Weapon hunt'], ['지하 탐험', 'Exploring B1'], ['처치됨', 'slain'], ['번개창', 'Lightning Spear'], ['공룡', 'Dinosaur'], ['추적', 'Tracking'],
     ['거인을 먹으면 뷱 승리', 'Eat giants to win'], ['뷱 승리', 'Snake wins'], ['땅속에 숨음', 'Underground'], ['뷱 막기', 'Blocking Snake'], ['부활 매복', 'Spawn ambush'], ['막기', 'Blocks'], ['뷱 승', 'Snake wins'],
     ['미션(발판)', 'Mission (plate)'], ['길목 차단', 'Cut-off'], ['흔적 추적', 'Trailing'], ['냄새 추적', 'Sniffing'], ['아이템 줍기', 'Item run'], ['소화 중', 'Digesting'], ['거인 사냥', 'Hunting giants'], ['알약 찾기', 'Pill hunt'],
     ['추격조', 'Chaser'], ['차단조', 'Cutter'], ['매복조', 'Ambusher'], ['파괴조', 'Wrecker'],
